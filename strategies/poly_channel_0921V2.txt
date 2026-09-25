@@ -252,17 +252,15 @@ if (long_entry and strategy.position_size == 0)
     if (enable_hard_stop)
         strategy.exit("SL", "Long", stop=close - f_sl_distance(atr), comment="N4")
 
+// 出場優先順序：N4 停損/保本 (盤中觸價) → N1 早盤跳空 → N2 回吐保利 → N3 跌破下軌
+if (strategy.position_size > 0 and not na(stop_price))
+    strategy.exit("SL", "Long", stop=stop_price, comment="N4")
+
 if (strategy.position_size > 0)
-    // 0. 盤中觸價停損 / 保本 (只升不降)
-    if (not na(stop_price))
-        strategy.exit("SL", "Long", stop=stop_price, comment="N4")
-    // 1. 早盤跳空開低：開盤瞬間立即平倉
     if (is_gap_down_at_open)
         strategy.close("Long", comment="N1", immediately=true)
-    // 2. 收盤確認回吐超過設定比例保利出場
     else if (exit_take_profit)
         strategy.close("Long", comment="N2")
-    // 3. 收盤確認跌破下軌平倉
     else if (exit_lower)
         strategy.close("Long", comment="N3")
 
