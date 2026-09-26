@@ -147,8 +147,18 @@ else
 // 收盤確認價格在中軌以上進場
 long_entry = close > midline and barstate.isconfirmed
 
+// 持倉期間是否曾經收盤在上軌以上 (空手時重置)
+var bool was_above_upper = false
+if (strategy.position_size > 0)
+    if (close > upper_band and barstate.isconfirmed)
+        was_above_upper := true
+else
+    was_above_upper := false
+
 // 出場條件：全部嚴格等待收定確認
-exit_lower       = ta.crossunder(close, lower_band) and barstate.isconfirmed
+// 曾收在上軌以上 → 收盤低於上軌出場；未曾收在上軌以上 → 收盤低於中軌出場
+exit_below_upper = was_above_upper and close < upper_band and barstate.isconfirmed
+exit_below_mid   = not was_above_upper and close < midline and barstate.isconfirmed
 exit_take_profit = not na(tp_exit_price) and (close <= tp_exit_price) and barstate.isconfirmed
 
 // 早盤跳空開低判定
@@ -166,9 +176,12 @@ if (strategy.position_size > 0)
     // 2. 收盤確認回吐超過 40% 保利出場 (無重繪、無盤中閃爍)
     else if (exit_take_profit)
         strategy.close("Long", comment="N2")
-    // 3. 收盤確認跌破下軌平倉
-    else if (exit_lower)
+    // 3. 曾收在上軌以上：收盤跌回上軌之下平倉
+    else if (exit_below_upper)
         strategy.close("Long", comment="N3")
+    // 4. 未曾收在上軌以上：收盤跌破中軌平倉
+    else if (exit_below_mid)
+        strategy.close("Long", comment="N4")
 
 // ==========================================
 // 10. 繪製通道與保利線
