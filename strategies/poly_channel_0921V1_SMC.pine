@@ -1,0 +1,243 @@
+//@version=5
+// 多項式0921V1 + SMC 1H 結構過濾
+// 原 V1 邏輯完全不變，只多了「SMC 1H 過濾」一組開關 (第 3.5、7.5 節)，SMC 過濾全部關閉、N4 設為「關閉」= 原 V1。
+// SMC 資料來自 TAIEX_SMC_Core 函式庫：calcConfirmed() + lookahead_on，只用已收完的 1H，回測與即時一致、不重繪。
+// ⚠️ 使用前把 import 的 YOUR_USERNAME 與版本號換成你發佈函式庫時顯示的路徑。
+strategy("多項式0921V1 + SMC 1H 過濾", overlay=true, initial_capital=1000000, default_qty_type=strategy.fixed, default_qty_value=1, calc_on_every_tick=true)
+
+import YOUR_USERNAME/TAIEX_SMC_Core/1 as SMC
+
+// ==========================================
+// 1. 原始通道參數
+// ==========================================
+poly_len         = input.int(76, title="多項式中軌長度", minval=3, group="【原始通道參數】")
+smooth_len       = input.int(8, title="🌟 中軌慣性平滑度", minval=1, maxval=20, group="【原始通道參數】")
+adx_len          = input.int(15, title="ADX 長度", minval=1, group="【原始通道參數】")
+atr_len          = input.int(14, title="ATR 長度", minval=1, group="【原始通道參數】")
+base_mult        = input.float(1.2, title="日盤基準通道寬度乘數", step=0.1, group="【原始通道參數】")
+night_ratio      = input.float(1.0, title="夜盤基準寬度比例 (>1放寬, <1縮小)", step=0.1, minval=0.1, maxval=3.0, group="【原始通道參數】")
+
+// ==========================================
+// 2. 帶量收縮設定 (日夜盤熱度強度獨立分開)
+// ==========================================
+enable_contract       = input.bool(true, title="🔥 啟用帶量收縮通道機制", group="【1分K 多空熱度收縮】")
+day_contract_weight   = input.float(0.8, title="☀️ 日盤熱度收縮強度", minval=0.0, maxval=2.0, step=0.05, group="【1分K 多空熱度收縮】")
+night_contract_weight = input.float(0.6, title="🌙 夜盤熱度收縮強度", minval=0.0, maxval=2.0, step=0.05, group="【1分K 多空熱度收縮】")
+morale_smooth         = input.int(8, title="🌟 士氣平滑度 (消除軌道折角)", minval=2, maxval=15, group="【1分K 多空熱度收縮】")
+min_band_ratio        = input.float(0.40, title="極限收縮下限比例 (防軌道過窄)", minval=0.1, maxval=0.8, step=0.05, group="【1分K 多空熱度收縮】")
+
+// ==========================================
+// 3. 出場與防禦設定 (收盤回吐 40% 保利)
+// ==========================================
+enable_tp_trail   = input.bool(true, title="💰 啟用動態保利 (高點回吐鎖利)", group="【保利設定】")
+tp_start_points   = input.float(400.0, title="啟動保利所需浮盈點數 (可設幾百點)", minval=10.0, step=10.0, group="【保利設定】")
+tp_pullback_pct   = input.float(40.0, title="最高浮盈回吐平倉比例 (%)", minval=5.0, maxval=80.0, step=5.0, group="【保利設定】")
+
+enable_gap_exit   = input.bool(true, title="🚨 啟用早盤跳空開低市價出場", group="早盤跳空保護")
+gap_down_pct      = input.float(2.0, title="跳空開低門檻 (%)", minval=0.1, step=0.1, group="早盤跳空保護")
+
+// --- 時段過濾設定 ---
+filter_1500_1800  = input.bool(false, title="🚫 限制時段：15:00-18:00 不進場", group="時段過濾")
+filter_0000_0400  = input.bool(false, title="🚫 限制時段 0：00:00-04:00 不進場", group="時段過濾")
+filter_0400_0430  = input.bool(true, title="🚫 限制時段 1：04:00-04:30 不進場", group="時段過濾")
+filter_0430_0500  = input.bool(true, title="🚫 限制時段 2：04:30-05:00 不進場", group="時段過濾")
+
+// ==========================================
+// 3.5 SMC 1H 結構過濾 (全部關閉 = 原 V1)
+// ==========================================
+SMC_TF               = "60"
+smc_trend_filter     = input.bool(true,  title="🧭 只在 1H 主要趨勢為多時進場", group="【SMC 1H 過濾】")
+smc_internal_filter  = input.bool(false, title="🧭 且 1H 內部趨勢也為多", group="【SMC 1H 過濾】")
+smc_premium_filter   = input.bool(false, title="🚫 價格在 1H 溢價區 (強弱高點附近) 不進場", group="【SMC 1H 過濾】")
+smc_bear_ob_filter   = input.bool(false, title="🚫 價格在 1H 空方訂單塊內不進場", group="【SMC 1H 過濾】")
+smc_exit_mode        = input.string("關閉", title="🚪 1H 空方結構出場 (N4)", options=["關閉", "主要 CHoCH", "主要 BOS/CHoCH", "內部 CHoCH"], group="【SMC 1H 過濾】")
+smc_show_levels      = input.bool(true,  title="顯示 1H 強弱高低點 / 平衡價", group="【SMC 1H 過濾】")
+smc_swing_len        = input.int(20,     title="主要波段長度 (1H K棒數)", minval=5, group="【SMC 1H 參數】")
+smc_internal_len     = input.int(5,      title="內部波段長度 (1H K棒數)", minval=2, group="【SMC 1H 參數】")
+smc_eq_len           = input.int(3,      title="等高/等低確認K棒數", minval=1, group="【SMC 1H 參數】")
+smc_eq_threshold     = input.float(0.1,  title="等高/等低容差 (ATR 倍數)", minval=0, step=0.05, group="【SMC 1H 參數】")
+smc_confluence       = input.bool(false, title="內部結構過濾無效突破", group="【SMC 1H 參數】")
+smc_atr_filter       = input.bool(true,  title="訂單塊高波動過濾用 ATR (關閉=累積平均範圍)", group="【SMC 1H 參數】")
+smc_mitigate_close   = input.bool(false, title="訂單塊失效用收盤價 (關閉=最高/最低價)", group="【SMC 1H 參數】")
+smc_fvg_auto         = input.bool(true,  title="自動過濾微小 FVG", group="【SMC 1H 參數】")
+
+if timeframe.in_seconds() > timeframe.in_seconds(SMC_TF)
+    runtime.error("圖表週期需 ≤ 1H 才能使用 SMC 1H 過濾")
+
+// ==========================================
+// 4. 時段判定 (以 Asia/Taipei 為準)
+// ==========================================
+is_day_session  = not na(time(timeframe.period, "0845-1345", "Asia/Taipei"))
+session_mult    = is_day_session ? 1.0 : night_ratio
+
+current_hour    = hour(time, "Asia/Taipei")
+current_minute  = minute(time, "Asia/Taipei")
+time_in_minutes = current_hour * 60 + current_minute
+
+in_no_trade_afternoon = filter_1500_1800 and (time_in_minutes >= 900 and time_in_minutes < 1080)
+in_no_trade_0         = filter_0000_0400 and (time_in_minutes >= 0 and time_in_minutes < 240)
+in_no_trade_1         = filter_0400_0430 and (time_in_minutes >= 240 and time_in_minutes < 270)
+in_no_trade_2         = filter_0430_0500 and (time_in_minutes >= 270 and time_in_minutes < 300)
+
+is_trading_allowed    = not in_no_trade_afternoon and not in_no_trade_0 and not in_no_trade_1 and not in_no_trade_2
+is_morning_open_bar   = (current_hour == 8 and current_minute == 45)
+
+// ==========================================
+// 5. 原始多項式中軌計算
+// ==========================================
+f_poly2(src, len) =>
+    float s0 = len
+    float s1 = 0.0, float s2 = 0.0, float s3 = 0.0, float s4 = 0.0
+    for i = 0 to len - 1
+        s1 += i
+        s2 += math.pow(i, 2)
+        s3 += math.pow(i, 3)
+        s4 += math.pow(i, 4)
+
+    float t0 = 0.0, float t1 = 0.0, float t2 = 0.0
+    for i = 0 to len - 1
+        y = src[i]
+        t0 += y
+        t1 += i * y
+        t2 += math.pow(i, 2) * y
+
+    float d = s0 * (s2 * s4 - s3 * s3) - s1 * (s1 * s4 - s2 * s3) + s2 * (s1 * s3 - s2 * s2)
+    float a = (t0 * (s2 * s4 - s3 * s3) - t1 * (s1 * s4 - s2 * s3) + t2 * (s1 * s3 - s2 * s2)) / d
+    a
+
+raw_midline = f_poly2(close, poly_len)
+midline     = ta.ema(raw_midline, smooth_len)
+
+// ==========================================
+// 6. 基礎動態通道半徑計算
+// ==========================================
+[diplus, diminus, adx] = ta.dmi(adx_len, adx_len)
+atr = ta.atr(atr_len)
+
+dynamic_mult  = base_mult * ((100 - adx) / 50) * session_mult
+base_distance = atr * dynamic_mult
+
+// ==========================================
+// 7. 帶量收縮核心：1分K多空熱度 (日夜盤權重分立)
+// ==========================================
+[o_arr_1m, c_arr_1m, v_arr_1m] = request.security_lower_tf(syminfo.tickerid, "1", [open, close, volume])
+
+bull_vol_1m = 0.0
+bear_vol_1m = 0.0
+if array.size(c_arr_1m) > 0
+    for i = 0 to array.size(c_arr_1m) - 1
+        c_i = array.get(c_arr_1m, i)
+        o_i = array.get(o_arr_1m, i)
+        v_i = array.get(v_arr_1m, i)
+        if c_i > o_i
+            bull_vol_1m += v_i
+        else if c_i < o_i
+            bear_vol_1m += v_i
+        else
+            bull_vol_1m += v_i * 0.5
+            bear_vol_1m += v_i * 0.5
+
+total_vol_1m = bull_vol_1m + bear_vol_1m
+net_bias     = total_vol_1m > 0 ? (bull_vol_1m - bear_vol_1m) / total_vol_1m : 0.0
+raw_activity = math.abs(net_bias)
+
+smooth_activity = ta.ema(ta.ema(raw_activity, morale_smooth), morale_smooth)
+
+current_contract_weight = is_day_session ? day_contract_weight : night_contract_weight
+contract_factor         = enable_contract ? math.max(min_band_ratio, 1.0 - (smooth_activity * current_contract_weight)) : 1.0
+
+upper_band = midline + (base_distance * contract_factor)
+lower_band = midline - (base_distance * contract_factor)
+
+// ==========================================
+// 7.5 SMC 1H 資料 (只用已收完的 1H)
+// ==========================================
+[smc_s_trend, smc_i_trend, smc_s_event, smc_i_event, smc_s_high, smc_s_low, smc_i_high, smc_i_low, smc_t_top, smc_t_bottom, smc_eq, smc_i_bull_ob_top, smc_i_bull_ob_btm, smc_i_bear_ob_top, smc_i_bear_ob_btm, smc_s_bull_ob_top, smc_s_bull_ob_btm, smc_s_bear_ob_top, smc_s_bear_ob_btm, smc_bull_fvg_top, smc_bull_fvg_btm, smc_bear_fvg_top, smc_bear_fvg_btm, smc_eq_event, smc_last_eqh, smc_last_eql, smc_time] = request.security(syminfo.tickerid, SMC_TF, SMC.calcConfirmed(smc_swing_len, smc_internal_len, smc_eq_len, smc_eq_threshold, smc_confluence, smc_atr_filter, smc_mitigate_close, smc_fvg_auto), lookahead = barmerge.lookahead_on)
+
+// 同一小時內每根圖表K棒拿到的 1H 值都一樣；事件類 (BOS/CHoCH) 只在新的一根 1H 開始時判斷一次
+smc_new_bar = ta.change(smc_time) != 0
+
+// 溢價區下緣 (與原 SMC 指標相同：強弱高點往下 5% 區間)
+smc_premium_floor = 0.95 * smc_t_top + 0.05 * smc_t_bottom
+
+smc_trend_ok    = not smc_trend_filter or smc_s_trend == 1
+smc_internal_ok = not smc_internal_filter or smc_i_trend == 1
+smc_premium_ok  = not smc_premium_filter or na(smc_premium_floor) or close < smc_premium_floor
+smc_bear_ob_ok  = not smc_bear_ob_filter or (na(smc_i_bear_ob_top) or close > smc_i_bear_ob_top or close < smc_i_bear_ob_btm) and (na(smc_s_bear_ob_top) or close > smc_s_bear_ob_top or close < smc_s_bear_ob_btm)
+smc_entry_ok    = smc_trend_ok and smc_internal_ok and smc_premium_ok and smc_bear_ob_ok
+
+smc_bear_exit_event = switch smc_exit_mode
+    "主要 CHoCH"     => smc_s_event == -2
+    "主要 BOS/CHoCH" => smc_s_event < 0
+    "內部 CHoCH"     => smc_i_event == -2
+    => false
+smc_exit_signal = smc_new_bar and smc_bear_exit_event
+
+// ==========================================
+// 8. 動態保利邏輯 (只升不降)
+// ==========================================
+var float max_favorable_price = na
+var float tp_exit_price       = na
+
+if (strategy.position_size > 0)
+    max_favorable_price := math.max(nz(max_favorable_price, high), high)
+
+    if (enable_tp_trail)
+        max_profit = max_favorable_price - strategy.position_avg_price
+        // 最高浮盈達到設定門檻後啟動
+        if (max_profit >= tp_start_points)
+            calc_stop = max_favorable_price - (max_profit * (tp_pullback_pct / 100.0))
+            // 保利價只升不降
+            tp_exit_price := math.max(nz(tp_exit_price, calc_stop), calc_stop)
+else
+    max_favorable_price := na
+    tp_exit_price       := na
+
+// ==========================================
+// 9. 進出場信號與策略執行
+// ==========================================
+// 收盤確認突破上軌進場
+long_entry = ta.crossover(close, upper_band) and barstate.isconfirmed
+
+// 出場條件：全部嚴格等待收定確認
+exit_lower       = ta.crossunder(close, lower_band) and barstate.isconfirmed
+exit_take_profit = not na(tp_exit_price) and (close <= tp_exit_price) and barstate.isconfirmed
+
+// 早盤跳空開低判定
+gap_stop_price      = strategy.position_size > 0 ? strategy.position_avg_price * (1.0 - gap_down_pct / 100.0) : na
+is_gap_down_at_open = enable_gap_exit and (strategy.position_size > 0) and is_morning_open_bar and (open <= gap_stop_price)
+
+// --- 訂單執行 ---
+if (long_entry and is_trading_allowed and smc_entry_ok and strategy.position_size == 0)
+    strategy.entry("Long", strategy.long, comment="Long")
+
+if (strategy.position_size > 0)
+    // 1. 早盤跳空開低：開盤瞬間立即平倉
+    if (is_gap_down_at_open)
+        strategy.close("Long", comment="N1", immediately=true)
+    // 2. 收盤確認回吐超過 40% 保利出場 (無重繪、無盤中閃爍)
+    else if (exit_take_profit)
+        strategy.close("Long", comment="N2")
+    // 3. 收盤確認跌破下軌平倉
+    else if (exit_lower)
+        strategy.close("Long", comment="N3")
+    // 4. 1H SMC 空方結構出場 (預設關閉)
+    else if (smc_exit_signal and barstate.isconfirmed)
+        strategy.close("Long", comment="N4")
+
+// ==========================================
+// 10. 繪製通道與保利線
+// ==========================================
+plot(midline, color=is_day_session ? color.fuchsia : color.orange, title="多項式中軌", linewidth=2)
+p_upper = plot(upper_band, color=color.new(color.blue, 0), title="上軌 (帶量向內收縮)")
+p_lower = plot(lower_band, color=color.new(color.blue, 0), title="下軌 (帶量向內收縮)")
+fill(p_upper, p_lower, color=color.new(color.blue, 90), title="通道背景")
+
+plot(strategy.position_size > 0 and not na(tp_exit_price) ? tp_exit_price : na, color=color.orange, style=plot.style_linebr, linewidth=2, title="動態保利線")
+
+// SMC 1H 參考線
+plot(smc_show_levels ? smc_t_top    : na, color=color.new(#F23645, 30), style=plot.style_stepline, title="1H 強弱高點")
+plot(smc_show_levels ? smc_t_bottom : na, color=color.new(#089981, 30), style=plot.style_stepline, title="1H 強弱低點")
+plot(smc_show_levels ? smc_eq       : na, color=color.new(#878b94, 30), style=plot.style_stepline, title="1H 平衡價")
+plotshape(smc_new_bar and smc_s_event == 2,  title="1H 主要多方 CHoCH", style=shape.labelup,   location=location.belowbar, color=#089981, text="CHoCH", textcolor=color.white, size=size.tiny)
+plotshape(smc_new_bar and smc_s_event == -2, title="1H 主要空方 CHoCH", style=shape.labeldown, location=location.abovebar, color=#F23645, text="CHoCH", textcolor=color.white, size=size.tiny)
