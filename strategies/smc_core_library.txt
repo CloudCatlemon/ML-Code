@@ -1,0 +1,334 @@
+// This work is licensed under a Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0) https://creativecommons.org/licenses/by-nc-sa/4.0/
+// © LuxAlgo / TAIEX Optimized
+
+//@version=5
+// @description 台指期 SMC 聰明錢概念「核心運算」函式庫 (改寫自 LuxAlgo Smart Money Concepts)。
+// 不畫任何圖、只回傳數值，讓策略/指標用 request.security 固定在 1H (或任何週期) 上呼叫。
+// 因為整段邏輯直接跑在「呼叫的週期」本身的K棒上，不論圖表開 5 分、15 分或 30 分，算出來的結構都一樣。
+library('TAIEX_SMC_Core', overlay = true)
+
+//---------------------------------------------------------------------------------------------------------------------}
+//CONSTANTS & TYPES
+//---------------------------------------------------------------------------------------------------------------------{
+const int BULLISH_LEG = 1
+const int BEARISH_LEG = 0
+const int BULLISH     = 1
+const int BEARISH     = -1
+
+type pivot
+    float currentLevel = na
+    float lastLevel    = na
+    bool  crossed      = false
+    int   barTime      = na
+    int   barIndex     = na
+
+type trend
+    int bias = 0
+
+type trailingExtremes
+    float top        = na
+    float bottom     = na
+    int   topTime    = na
+    int   bottomTime = na
+
+type orderBlock
+    float barHigh
+    float barLow
+    int   barTime
+    int   bias
+
+type fairValueGap
+    float top
+    float bottom
+    int   bias
+    int   barTime
+
+//---------------------------------------------------------------------------------------------------------------------}
+//INTERNAL HELPERS (不對外輸出)
+//---------------------------------------------------------------------------------------------------------------------{
+// 與原版 LuxAlgo 相同：size 根前的高點高於最近 size 根 → 空方腳；低點低於最近 size 根 → 多方腳
+_leg(simple int size) =>
+    var int leg = 0
+    float pastHigh = high[size]
+    float pastLow  = low[size]
+    float recentHigh = ta.highest(size)
+    float recentLow  = ta.lowest(size)
+    if pastHigh > recentHigh
+        leg := BEARISH_LEG
+    else if pastLow < recentLow
+        leg := BULLISH_LEG
+    leg
+
+// 更新擺動高低點；回傳 1 = 新的擺動低點、-1 = 新的擺動高點、0 = 無
+_updatePivots(simple int size, pivot hi, pivot lo) =>
+    int currentLeg = _leg(size)
+    int legChange  = ta.change(currentLeg)
+    int newPivot   = 0
+    if legChange == 1
+        lo.lastLevel    := lo.currentLevel
+        lo.currentLevel := low[size]
+        lo.crossed      := false
+        lo.barTime      := time[size]
+        lo.barIndex     := bar_index - size
+        newPivot        := 1
+    else if legChange == -1
+        hi.lastLevel    := hi.currentLevel
+        hi.currentLevel := high[size]
+        hi.crossed      := false
+        hi.barTime      := time[size]
+        hi.barIndex     := bar_index - size
+        newPivot        := -1
+    newPivot
+
+// 收盤突破判定；回傳 [多方事件, 空方事件]，2 = CHoCH、1 = BOS (空方為 -2 / -1)
+_breaks(pivot hi, pivot lo, trend t, bool bullOk, bool bearOk) =>
+    bool bullCross = ta.crossover(close, hi.currentLevel)
+    bool bearCross = ta.crossunder(close, lo.currentLevel)
+    int bullEvent  = 0
+    int bearEvent  = 0
+    if bullCross and not hi.crossed and bullOk
+        bullEvent  := t.bias == BEARISH ? 2 : 1
+        hi.crossed := true
+        t.bias     := BULLISH
+    if bearCross and not lo.crossed and bearOk
+        bearEvent  := t.bias == BULLISH ? -2 : -1
+        lo.crossed := true
+        t.bias     := BEARISH
+    [bullEvent, bearEvent]
+
+// 突破時，在「被突破的擺動點 → 目前」區間內找訂單塊 (多方取最低那根、空方取最高那根)
+_storeOrderBlock(array<float> parsedHighs, array<float> parsedLows, array<int> times, pivot p, int bias, array<orderBlock> orderBlocks) =>
+    array<float> src = bias == BEARISH ? parsedHighs.slice(p.barIndex, bar_index) : parsedLows.slice(p.barIndex, bar_index)
+    if src.size() > 0
+        int idx = p.barIndex + (bias == BEARISH ? src.indexof(src.max()) : src.indexof(src.min()))
+        if orderBlocks.size() >= 100
+            orderBlocks.pop()
+        orderBlocks.unshift(orderBlock.new(parsedHighs.get(idx), parsedLows.get(idx), times.get(idx), bias))
+
+_mitigateOrderBlocks(array<orderBlock> orderBlocks, float bearishSource, float bullishSource) =>
+    int n = orderBlocks.size()
+    if n > 0
+        for i = n - 1 to 0
+            orderBlock ob = orderBlocks.get(i)
+            if (ob.bias == BEARISH and bearishSource > ob.barHigh) or (ob.bias == BULLISH and bullishSource < ob.barLow)
+                orderBlocks.remove(i)
+
+// 最新一個尚未失效的訂單塊 [上緣, 下緣]，沒有則回傳 na
+_latestOrderBlock(array<orderBlock> orderBlocks, int bias) =>
+    float top    = na
+    float bottom = na
+    for ob in orderBlocks
+        if ob.bias == bias
+            top    := ob.barHigh
+            bottom := ob.barLow
+            break
+    [top, bottom]
+
+_mitigateFairValueGaps(array<fairValueGap> gaps) =>
+    int n = gaps.size()
+    if n > 0
+        for i = n - 1 to 0
+            fairValueGap g = gaps.get(i)
+            if (g.bias == BULLISH and low < g.bottom) or (g.bias == BEARISH and high > g.top)
+                gaps.remove(i)
+
+_latestFairValueGap(array<fairValueGap> gaps, int bias) =>
+    float top    = na
+    float bottom = na
+    for g in gaps
+        if g.bias == bias
+            top    := g.top
+            bottom := g.bottom
+            break
+    [top, bottom]
+
+//---------------------------------------------------------------------------------------------------------------------}
+//EXPORTED FUNCTIONS
+//---------------------------------------------------------------------------------------------------------------------{
+// @function 計算 SMC 全部核心狀態，運算週期 = 呼叫它的週期 (例如 request.security 的 '60')。
+//   注意：包含「尚未收完」的K棒，即時盤會重繪；策略請改用 calcConfirmed()。
+// @param swingLen 主要波段長度 (原版 swingsLengthInput)
+// @param internalLen 內部波段長度 (原版固定 5)
+// @param eqLen 等高/等低點確認K棒數
+// @param eqThreshold 等高/等低點容差 (ATR 倍數)
+// @param confluenceFilter 內部結構「過濾無效突破」
+// @param atrFilter 訂單塊高波動過濾：true = ATR(200)、false = 累積平均範圍
+// @param mitigateByClose 訂單塊失效判定：true = 收盤價、false = 最高/最低價
+// @param fvgAutoThreshold 自動過濾微小 FVG
+// @returns 27 個值 (順序固定)：
+//   [0]  swingTrend       主要趨勢 1=多 -1=空 0=未定
+//   [1]  internalTrend    內部趨勢
+//   [2]  swingEvent       主要結構事件 2=多CHoCH 1=多BOS -1=空BOS -2=空CHoCH 0=無 (只在發生那根K棒)
+//   [3]  internalEvent    內部結構事件 (同上)
+//   [4]  swingHigh        主要擺動高點
+//   [5]  swingLow         主要擺動低點
+//   [6]  internalHigh     內部擺動高點
+//   [7]  internalLow      內部擺動低點
+//   [8]  trailingTop      強弱高點 (趨勢空=強勢高點、多=弱勢高點)
+//   [9]  trailingBottom   強弱低點
+//   [10] equilibrium      平衡價 (以上 >= 溢價區、以下 = 折價區)
+//   [11] iBullObTop  [12] iBullObBtm  最新未失效「內部多方 OB」
+//   [13] iBearObTop  [14] iBearObBtm  最新未失效「內部空方 OB」
+//   [15] sBullObTop  [16] sBullObBtm  最新未失效「主要多方 OB」
+//   [17] sBearObTop  [18] sBearObBtm  最新未失效「主要空方 OB」
+//   [19] bullFvgTop  [20] bullFvgBtm  最新未回補「多方 FVG」
+//   [21] bearFvgTop  [22] bearFvgBtm  最新未回補「空方 FVG」
+//   [23] eqEvent          1=這根出現 EQH、-1=出現 EQL、0=無
+//   [24] lastEqh          最近一次 EQH 價位
+//   [25] lastEql          最近一次 EQL 價位
+//   [26] barTime          這組數值所屬K棒的開盤時間
+export calc(simple int swingLen = 20, simple int internalLen = 5, simple int eqLen = 3, simple float eqThreshold = 0.1, simple bool confluenceFilter = false, simple bool atrFilter = true, simple bool mitigateByClose = false, simple bool fvgAutoThreshold = true) =>
+    var pivot swingHigh    = pivot.new()
+    var pivot swingLow     = pivot.new()
+    var pivot internalHigh = pivot.new()
+    var pivot internalLow  = pivot.new()
+    var pivot equalHigh    = pivot.new()
+    var pivot equalLow     = pivot.new()
+    var trend swingTrend    = trend.new()
+    var trend internalTrend = trend.new()
+    var trailingExtremes trailing = trailingExtremes.new()
+    var array<float> parsedHighs = array.new<float>()
+    var array<float> parsedLows  = array.new<float>()
+    var array<int>   times       = array.new<int>()
+    var array<orderBlock> swingOrderBlocks    = array.new<orderBlock>()
+    var array<orderBlock> internalOrderBlocks = array.new<orderBlock>()
+    var array<fairValueGap> fairValueGaps     = array.new<fairValueGap>()
+    var float lastEqh = na
+    var float lastEql = na
+
+    // ── 1) 高波動K棒過濾 (訂單塊用) ──
+    float atrMeasure        = ta.atr(200)
+    float cumulativeRange   = ta.cum(ta.tr) / bar_index
+    float volatilityMeasure = atrFilter ? atrMeasure : cumulativeRange
+    bool  highVolatilityBar = (high - low) >= (2 * volatilityMeasure)
+    parsedHighs.push(highVolatilityBar ? low : high)
+    parsedLows.push(highVolatilityBar ? high : low)
+    times.push(time)
+
+    // ── 2) 強弱高低點 / 溢價折價區邊界 ──
+    trailing.top        := math.max(high, trailing.top)
+    trailing.topTime    := trailing.top == high ? time : trailing.topTime
+    trailing.bottom     := math.min(low, trailing.bottom)
+    trailing.bottomTime := trailing.bottom == low ? time : trailing.bottomTime
+
+    // ── 3) FVG 回補判定 ──
+    _mitigateFairValueGaps(fairValueGaps)
+
+    // ── 4) 擺動高低點 ──
+    float prevEqualHigh = equalHigh.currentLevel
+    float prevEqualLow  = equalLow.currentLevel
+    int swingPivot = _updatePivots(swingLen, swingHigh, swingLow)
+    _updatePivots(internalLen, internalHigh, internalLow)
+    int equalPivot = _updatePivots(eqLen, equalHigh, equalLow)
+
+    if swingPivot == 1
+        trailing.bottom     := swingLow.currentLevel
+        trailing.bottomTime := swingLow.barTime
+    else if swingPivot == -1
+        trailing.top        := swingHigh.currentLevel
+        trailing.topTime    := swingHigh.barTime
+
+    int eqEvent = 0
+    if equalPivot == -1 and math.abs(prevEqualHigh - equalHigh.currentLevel) < eqThreshold * atrMeasure
+        eqEvent := 1
+        lastEqh := equalHigh.currentLevel
+    else if equalPivot == 1 and math.abs(prevEqualLow - equalLow.currentLevel) < eqThreshold * atrMeasure
+        eqEvent := -1
+        lastEql := equalLow.currentLevel
+
+    // ── 5) BOS / CHoCH ──
+    bool bullishBar = true
+    bool bearishBar = true
+    if confluenceFilter
+        bullishBar := high - math.max(close, open) > math.min(close, open - low)
+        bearishBar := high - math.max(close, open) < math.min(close, open - low)
+
+    bool internalBullOk = internalHigh.currentLevel != swingHigh.currentLevel and bullishBar
+    bool internalBearOk = internalLow.currentLevel != swingLow.currentLevel and bearishBar
+    [iBullEvent, iBearEvent] = _breaks(internalHigh, internalLow, internalTrend, internalBullOk, internalBearOk)
+    [sBullEvent, sBearEvent] = _breaks(swingHigh, swingLow, swingTrend, true, true)
+
+    if iBullEvent != 0
+        _storeOrderBlock(parsedHighs, parsedLows, times, internalHigh, BULLISH, internalOrderBlocks)
+    if iBearEvent != 0
+        _storeOrderBlock(parsedHighs, parsedLows, times, internalLow, BEARISH, internalOrderBlocks)
+    if sBullEvent != 0
+        _storeOrderBlock(parsedHighs, parsedLows, times, swingHigh, BULLISH, swingOrderBlocks)
+    if sBearEvent != 0
+        _storeOrderBlock(parsedHighs, parsedLows, times, swingLow, BEARISH, swingOrderBlocks)
+
+    int internalEvent = iBearEvent != 0 ? iBearEvent : iBullEvent
+    int swingEvent    = sBearEvent != 0 ? sBearEvent : sBullEvent
+
+    // ── 6) 訂單塊失效判定 ──
+    float bearishSource = mitigateByClose ? close : high
+    float bullishSource = mitigateByClose ? close : low
+    _mitigateOrderBlocks(internalOrderBlocks, bearishSource, bullishSource)
+    _mitigateOrderBlocks(swingOrderBlocks, bearishSource, bullishSource)
+
+    // ── 7) 新 FVG ──
+    float barDeltaPercent = (close[1] - open[1]) / (open[1] * 100)
+    float autoThreshold   = ta.cum(math.abs(barDeltaPercent)) / bar_index * 2
+    float fvgThreshold    = fvgAutoThreshold ? autoThreshold : 0
+    bool bullishGap = low > high[2] and close[1] > high[2] and barDeltaPercent > fvgThreshold
+    bool bearishGap = high < low[2] and close[1] < low[2] and -barDeltaPercent > fvgThreshold
+    if bullishGap
+        if fairValueGaps.size() >= 100
+            fairValueGaps.pop()
+        fairValueGaps.unshift(fairValueGap.new(low, high[2], BULLISH, time[1]))
+    if bearishGap
+        if fairValueGaps.size() >= 100
+            fairValueGaps.pop()
+        fairValueGaps.unshift(fairValueGap.new(high, low[2], BEARISH, time[1]))
+
+    // ── 8) 輸出 ──
+    [iBullObTop, iBullObBtm] = _latestOrderBlock(internalOrderBlocks, BULLISH)
+    [iBearObTop, iBearObBtm] = _latestOrderBlock(internalOrderBlocks, BEARISH)
+    [sBullObTop, sBullObBtm] = _latestOrderBlock(swingOrderBlocks, BULLISH)
+    [sBearObTop, sBearObBtm] = _latestOrderBlock(swingOrderBlocks, BEARISH)
+    [bullFvgTop, bullFvgBtm] = _latestFairValueGap(fairValueGaps, BULLISH)
+    [bearFvgTop, bearFvgBtm] = _latestFairValueGap(fairValueGaps, BEARISH)
+    float equilibrium = math.avg(trailing.top, trailing.bottom)
+    int   sTrend      = swingTrend.bias
+    int   iTrend      = internalTrend.bias
+    float sHigh       = swingHigh.currentLevel
+    float sLow        = swingLow.currentLevel
+    float iHigh       = internalHigh.currentLevel
+    float iLow        = internalLow.currentLevel
+    float tTop        = trailing.top
+    float tBottom     = trailing.bottom
+
+    [sTrend, iTrend, swingEvent, internalEvent, sHigh, sLow, iHigh, iLow, tTop, tBottom, equilibrium, iBullObTop, iBullObBtm, iBearObTop, iBearObBtm, sBullObTop, sBullObBtm, sBearObTop, sBearObBtm, bullFvgTop, bullFvgBtm, bearFvgTop, bearFvgBtm, eqEvent, lastEqh, lastEql, time]
+
+// @function 與 calc() 相同，但每個值都往前取一根 ([1])，也就是「上一根已經收完的K棒」的結果。
+//   搭配 request.security(..., lookahead = barmerge.lookahead_on) 使用：歷史回測與即時盤完全一致、不重繪、不偷看未來。
+// @param swingLen 主要波段長度
+// @param internalLen 內部波段長度
+// @param eqLen 等高/等低點確認K棒數
+// @param eqThreshold 等高/等低點容差 (ATR 倍數)
+// @param confluenceFilter 內部結構「過濾無效突破」
+// @param atrFilter 訂單塊高波動過濾：true = ATR(200)、false = 累積平均範圍
+// @param mitigateByClose 訂單塊失效判定：true = 收盤價、false = 最高/最低價
+// @param fvgAutoThreshold 自動過濾微小 FVG
+// @returns 與 calc() 相同的 27 個值，全部為上一根已收K棒的結果
+export calcConfirmed(simple int swingLen = 20, simple int internalLen = 5, simple int eqLen = 3, simple float eqThreshold = 0.1, simple bool confluenceFilter = false, simple bool atrFilter = true, simple bool mitigateByClose = false, simple bool fvgAutoThreshold = true) =>
+    [sTrend, iTrend, sEvent, iEvent, sHigh, sLow, iHigh, iLow, tTop, tBottom, eqLevel, iBullObTop, iBullObBtm, iBearObTop, iBearObBtm, sBullObTop, sBullObBtm, sBearObTop, sBearObBtm, bullFvgTop, bullFvgBtm, bearFvgTop, bearFvgBtm, eqEvent, lastEqh, lastEql, barTime] = calc(swingLen, internalLen, eqLen, eqThreshold, confluenceFilter, atrFilter, mitigateByClose, fvgAutoThreshold)
+    [sTrend[1], iTrend[1], sEvent[1], iEvent[1], sHigh[1], sLow[1], iHigh[1], iLow[1], tTop[1], tBottom[1], eqLevel[1], iBullObTop[1], iBullObBtm[1], iBearObTop[1], iBearObBtm[1], sBullObTop[1], sBullObBtm[1], sBearObTop[1], sBearObBtm[1], bullFvgTop[1], bullFvgBtm[1], bearFvgTop[1], bearFvgBtm[1], eqEvent[1], lastEqh[1], lastEql[1], barTime[1]]
+
+//---------------------------------------------------------------------------------------------------------------------}
+//DEMO (函式庫發佈頁的預覽圖；import 使用時不會執行)
+//---------------------------------------------------------------------------------------------------------------------{
+[dTrend, dITrend, dEvent, dIEvent, dHigh, dLow, dIHigh, dILow, dTop, dBottom, dEq, dIBullTop, dIBullBtm, dIBearTop, dIBearBtm, dSBullTop, dSBullBtm, dSBearTop, dSBearBtm, dBullFvgTop, dBullFvgBtm, dBearFvgTop, dBearFvgBtm, dEqEvent, dEqh, dEql, dTime] = request.security(syminfo.tickerid, '60', calcConfirmed(), lookahead = barmerge.lookahead_on)
+
+plot(dTop,    '1H 強弱高點', color = #F23645, style = plot.style_stepline)
+plot(dBottom, '1H 強弱低點', color = #089981, style = plot.style_stepline)
+plot(dEq,     '1H 平衡價',   color = #878b94, style = plot.style_stepline)
+plot(dIBullTop, '1H 內部多方 OB 上緣', color = color.new(#3179f5, 40), style = plot.style_linebr)
+plot(dIBullBtm, '1H 內部多方 OB 下緣', color = color.new(#3179f5, 40), style = plot.style_linebr)
+plot(dIBearTop, '1H 內部空方 OB 上緣', color = color.new(#f77c80, 40), style = plot.style_linebr)
+plot(dIBearBtm, '1H 內部空方 OB 下緣', color = color.new(#f77c80, 40), style = plot.style_linebr)
+bool dNewHtf = ta.change(dTime) != 0
+plotshape(dNewHtf and dEvent == 2,  '主要多方 CHoCH', shape.labelup,   location.belowbar, #089981, text = 'CHoCH', textcolor = color.white, size = size.tiny)
+plotshape(dNewHtf and dEvent == 1,  '主要多方 BOS',   shape.labelup,   location.belowbar, #089981, text = 'BOS',   textcolor = color.white, size = size.tiny)
+plotshape(dNewHtf and dEvent == -1, '主要空方 BOS',   shape.labeldown, location.abovebar, #F23645, text = 'BOS',   textcolor = color.white, size = size.tiny)
+plotshape(dNewHtf and dEvent == -2, '主要空方 CHoCH', shape.labeldown, location.abovebar, #F23645, text = 'CHoCH', textcolor = color.white, size = size.tiny)

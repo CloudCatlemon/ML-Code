@@ -1,0 +1,94 @@
+//@version=5
+// SMC 1H 結構策略 (範例)
+// 使用 TAIEX_SMC_Core 函式庫，固定用「已收完的 1H K棒」計算 SMC 結構，
+// 圖表可開 5 分 / 15 分 / 30 分 / 1H，結構訊號都一樣，只有進出場的執行時點跟著圖表週期。
+//
+// ⚠️ 使用前：把下面 import 的 YOUR_USERNAME 換成你自己的 TradingView 帳號名稱，
+//    版本號 (最後的 /1) 換成你發佈函式庫時顯示的版本。
+// ⚠️ 進出場邏輯只是示範怎麼接 SMC 資料，未經回測驗證，請自行調整。
+strategy('SMC 1H 結構策略 (範例)', overlay = true, initial_capital = 1000000, default_qty_type = strategy.fixed, default_qty_value = 1, commission_type = strategy.commission.cash_per_contract, commission_value = 100, slippage = 1)
+
+import YOUR_USERNAME/TAIEX_SMC_Core/1 as SMC
+
+// ==========================================
+// 1. SMC 參數 (結構週期固定 1H)
+// ==========================================
+SMC_TF            = '60'
+swingLen          = input.int(20,     '主要波段長度 (1H K棒數)',   minval = 5,             group = '【SMC 1H 結構】')
+internalLen       = input.int(5,      '內部波段長度 (1H K棒數)',   minval = 2,             group = '【SMC 1H 結構】')
+eqLen             = input.int(3,      '等高/等低確認K棒數',        minval = 1,             group = '【SMC 1H 結構】')
+eqThreshold       = input.float(0.1,  '等高/等低容差 (ATR 倍數)',  minval = 0, step = 0.05, group = '【SMC 1H 結構】')
+confluenceFilter  = input.bool(false, '內部結構過濾無效突破',                              group = '【SMC 1H 結構】')
+atrFilter         = input.bool(true,  '訂單塊高波動過濾用 ATR (關閉=累積平均範圍)',        group = '【SMC 1H 結構】')
+mitigateByClose   = input.bool(false, '訂單塊失效用收盤價 (關閉=最高/最低價)',             group = '【SMC 1H 結構】')
+fvgAutoThreshold  = input.bool(true,  '自動過濾微小 FVG',                                  group = '【SMC 1H 結構】')
+
+// ==========================================
+// 2. 進出場參數 (範例)
+// ==========================================
+entryOnChochOnly  = input.bool(true,  '只在內部 CHoCH 進場 (關閉=BOS 也進)',               group = '【進出場】')
+requireZone       = input.bool(true,  '多單需在折價區、空單需在溢價區',                     group = '【進出場】')
+stopBufferTicks   = input.int(10,     '停損緩衝 (tick)',           minval = 0,             group = '【進出場】')
+rewardRisk        = input.float(2.0,  '停利 = 風險的 N 倍',         minval = 0.5, step = 0.5, group = '【進出場】')
+exitOnSwingFlip   = input.bool(true,  '主要趨勢反轉時平倉',                                 group = '【進出場】')
+
+if timeframe.in_seconds() > timeframe.in_seconds(SMC_TF)
+    runtime.error('圖表週期需 ≤ 1H')
+
+// ==========================================
+// 3. 取得 1H SMC 資料 (calcConfirmed + lookahead_on = 只用已收完的 1H，不重繪、不偷看未來)
+// ==========================================
+[sTrend, iTrend, sEvent, iEvent, sHigh, sLow, iHigh, iLow, tTop, tBottom, eqLevel, iBullObTop, iBullObBtm, iBearObTop, iBearObBtm, sBullObTop, sBullObBtm, sBearObTop, sBearObBtm, bullFvgTop, bullFvgBtm, bearFvgTop, bearFvgBtm, eqEvent, lastEqh, lastEql, smcTime] = request.security(syminfo.tickerid, SMC_TF, SMC.calcConfirmed(swingLen, internalLen, eqLen, eqThreshold, confluenceFilter, atrFilter, mitigateByClose, fvgAutoThreshold), lookahead = barmerge.lookahead_on)
+
+// 1H 數值在同一小時內的每根圖表K棒都相同；事件類 (sEvent/iEvent/eqEvent) 只在「新的一根 1H 剛開始」那一根判斷一次，避免重複觸發
+newSmcBar = ta.change(smcTime) != 0
+
+// ==========================================
+// 4. 進出場 (範例)
+// ==========================================
+bullBreak = entryOnChochOnly ? iEvent == 2  : iEvent > 0
+bearBreak = entryOnChochOnly ? iEvent == -2 : iEvent < 0
+
+// 主要趨勢為多 (1) + 內部多方突破 + 位於折價區 → 做多；空單反之
+longSignal  = newSmcBar and sTrend == 1  and bullBreak and (not requireZone or close <= eqLevel)
+shortSignal = newSmcBar and sTrend == -1 and bearBreak and (not requireZone or close >= eqLevel)
+
+// 停損放在 1H 內部擺動低點/高點外側，停利用固定風報比
+buffer    = stopBufferTicks * syminfo.mintick
+longStop  = iLow - buffer
+shortStop = iHigh + buffer
+
+var float stopPrice   = na
+var float targetPrice = na
+
+if longSignal and strategy.position_size <= 0 and not na(longStop) and longStop < close
+    stopPrice   := longStop
+    targetPrice := close + rewardRisk * (close - longStop)
+    strategy.entry('L', strategy.long)
+
+if shortSignal and strategy.position_size >= 0 and not na(shortStop) and shortStop > close
+    stopPrice   := shortStop
+    targetPrice := close - rewardRisk * (shortStop - close)
+    strategy.entry('S', strategy.short)
+
+strategy.exit('L-X', 'L', stop = stopPrice, limit = targetPrice)
+strategy.exit('S-X', 'S', stop = stopPrice, limit = targetPrice)
+
+if exitOnSwingFlip and newSmcBar
+    if strategy.position_size > 0 and sTrend == -1
+        strategy.close('L', comment = '主要趨勢轉空')
+    if strategy.position_size < 0 and sTrend == 1
+        strategy.close('S', comment = '主要趨勢轉多')
+
+// ==========================================
+// 5. 繪圖 (確認 1H 結構是否正確)
+// ==========================================
+plot(tTop,    '1H 強弱高點', color = #F23645, style = plot.style_stepline)
+plot(tBottom, '1H 強弱低點', color = #089981, style = plot.style_stepline)
+plot(eqLevel, '1H 平衡價',   color = #878b94, style = plot.style_stepline)
+plot(iHigh,   '1H 內部高點', color = color.new(#F23645, 60), style = plot.style_stepline)
+plot(iLow,    '1H 內部低點', color = color.new(#089981, 60), style = plot.style_stepline)
+plot(strategy.position_size != 0 ? stopPrice   : na, '停損', color = color.orange, style = plot.style_linebr)
+plot(strategy.position_size != 0 ? targetPrice : na, '停利', color = color.aqua,   style = plot.style_linebr)
+plotshape(newSmcBar and sEvent == 2,  '主要多方 CHoCH', shape.labelup,   location.belowbar, #089981, text = 'CHoCH', textcolor = color.white, size = size.tiny)
+plotshape(newSmcBar and sEvent == -2, '主要空方 CHoCH', shape.labeldown, location.abovebar, #F23645, text = 'CHoCH', textcolor = color.white, size = size.tiny)
