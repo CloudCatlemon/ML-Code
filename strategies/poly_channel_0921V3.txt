@@ -1,0 +1,364 @@
+//@version=5
+// 多項式0921V3 (以 V2 為基礎，專攻「盤整假突破：進場後小賺隨即轉虧」)
+// 相對 V2 的主要改動：
+//   (1) 盤整過濾：中軌斜率、Choppiness Index、DI+ > DI-，盤整時不做突破
+//   (2) 突破品質：需站上上軌 N 根 + 超出上軌一定 ATR + 收在 K 棒上半部，每段突破只進一次
+//   (3) 虧損後再進場需突破上一筆失敗單的最高價 (避免同一個箱頂被反覆巴)
+//   (4) 快速失敗出場：進場後 N 根內收回通道且低於成本 → 立即出場 (不等跌破下軌)
+//   (5) 浮盈鎖利階梯：浮盈 ≥ N 倍 ATR 起鎖住一定比例 (填補「保本」到「400 點保利」之間的空窗)
+//   (6) 時間停損：持倉 N 根仍走不出去 → 出場
+strategy("多項式0921V3 (盤整過濾+快速失敗出場+鎖利)", overlay=true, initial_capital=1000000, default_qty_type=strategy.fixed, default_qty_value=1, calc_on_every_tick=true, commission_type=strategy.commission.cash_per_contract, commission_value=100, slippage=1)
+
+// ==========================================
+// 1. 原始通道參數
+// ==========================================
+poly_len         = input.int(76, title="多項式中軌長度", minval=3, group="【原始通道參數】")
+smooth_len       = input.int(8, title="🌟 中軌慣性平滑度", minval=1, maxval=20, group="【原始通道參數】")
+adx_len          = input.int(15, title="ADX 長度", minval=1, group="【原始通道參數】")
+atr_len          = input.int(14, title="ATR 長度", minval=1, group="【原始通道參數】")
+base_mult        = input.float(1.2, title="日盤基準通道寬度乘數", step=0.1, group="【原始通道參數】")
+night_ratio      = input.float(1.0, title="夜盤基準寬度比例 (>1放寬, <1縮小)", step=0.1, minval=0.1, maxval=3.0, group="【原始通道參數】")
+
+// ==========================================
+// 2. 帶量收縮設定 (30 分鐘滾動熱度，日夜盤分立)
+// ==========================================
+enable_contract       = input.bool(true, title="🔥 啟用帶量收縮通道機制", group="【1分K 多空熱度收縮】")
+directional_contract  = input.bool(true, title="🧭 方向性收縮 (多熱只收上軌、空熱只收下軌)", group="【1分K 多空熱度收縮】")
+heat_window_min       = input.int(30, title="熱度統計視窗 (分鐘)", minval=5, maxval=240, group="【1分K 多空熱度收縮】")
+day_contract_weight   = input.float(0.8, title="☀️ 日盤熱度收縮強度", minval=0.0, maxval=2.0, step=0.05, group="【1分K 多空熱度收縮】")
+night_contract_weight = input.float(0.6, title="🌙 夜盤熱度收縮強度", minval=0.0, maxval=2.0, step=0.05, group="【1分K 多空熱度收縮】")
+morale_smooth         = input.int(2, title="🌟 士氣平滑度 (30分K圖建議 1~2)", minval=1, maxval=15, group="【1分K 多空熱度收縮】")
+min_band_ratio        = input.float(0.40, title="極限收縮下限比例 (防軌道過窄)", minval=0.1, maxval=0.8, step=0.05, group="【1分K 多空熱度收縮】")
+
+enable_vol_gate       = input.bool(true, title="📊 需「帶量」才收縮 (量能高於基準)", group="【帶量判定】")
+vol_base_len          = input.int(300, title="量能基準長度 (K棒數，日夜盤各自計算)", minval=20, group="【帶量判定】")
+vol_full_ratio        = input.float(1.5, title="滿額收縮所需量比 (30分均量 / 基準)", minval=0.5, maxval=5.0, step=0.1, group="【帶量判定】")
+
+// ==========================================
+// 3. 進場過濾
+// ==========================================
+use_heat_confirm  = input.bool(true, title="✅ 進場需多方熱度確認", group="【進場過濾】")
+entry_bias_min    = input.float(0.10, title="進場最低 30 分淨多方量比 (-1~1)", minval=-1.0, maxval=1.0, step=0.05, group="【進場過濾】")
+use_chase_filter  = input.bool(true, title="✅ 防追高 (收盤離上軌過遠不進)", group="【進場過濾】")
+chase_atr_mult    = input.float(1.0, title="最大追價距離 (ATR 倍數)", minval=0.1, step=0.1, group="【進場過濾】")
+cooldown_bars     = input.int(1, title="出場後冷卻 K 棒數 (0=不冷卻)", minval=0, group="【進場過濾】")
+
+// --- 盤整過濾：盤整時中軌走平、價格來回穿越，突破上軌多半是箱頂 ---
+use_slope_filter  = input.bool(true, title="📐 中軌斜率過濾 (中軌需向上)", group="【盤整過濾】")
+slope_len         = input.int(5, title="斜率回看 K 棒數", minval=1, group="【盤整過濾】")
+slope_min_atr     = input.float(0.3, title="中軌最少上升幅度 (ATR 倍數)", minval=0.0, step=0.05, group="【盤整過濾】")
+use_chop_filter   = input.bool(true, title="🌀 Choppiness Index 過濾", group="【盤整過濾】")
+chop_len          = input.int(14, title="CHOP 長度", minval=2, group="【盤整過濾】")
+chop_max          = input.float(55.0, title="CHOP 上限 (高於此值視為盤整，常用 50~61.8)", minval=30.0, maxval=80.0, step=0.5, group="【盤整過濾】")
+use_di_filter     = input.bool(true, title="➕ 需 DI+ > DI-", group="【盤整過濾】")
+
+// --- 突破品質：過濾「剛好碰一下上軌就縮回」的假突破 ---
+confirm_bars      = input.int(1, title="需連續收在上軌之上 K 棒數 (1=同 V1)", minval=1, maxval=5, group="【突破品質】")
+brk_buffer_atr    = input.float(0.15, title="收盤需超出上軌 (ATR 倍數，0=不要求)", minval=0.0, step=0.05, group="【突破品質】")
+use_bar_quality   = input.bool(true, title="🕯 收盤需位於 K 棒上半部", group="【突破品質】")
+bar_close_pos     = input.float(0.6, title="收盤位置下限 (0=最低, 1=最高)", minval=0.0, maxval=1.0, step=0.05, group="【突破品質】")
+use_loss_reentry  = input.bool(true, title="🔁 虧損後需突破失敗單最高價才可再進場", group="【突破品質】")
+
+// --- 快速失敗 / 時間停損 ---
+use_fail_exit     = input.bool(true, title="⚡ 快速失敗出場 (收回通道且低於成本)", group="【快速失敗出場】")
+fail_bars         = input.int(3, title="進場後幾根內檢查", minval=1, group="【快速失敗出場】")
+use_mid_exit      = input.bool(false, title="收盤跌破中軌即出場 (比下軌早)", group="【快速失敗出場】")
+use_time_stop     = input.bool(true, title="⏱ 時間停損 (走不出去就走)", group="【快速失敗出場】")
+time_stop_bars    = input.int(8, title="持倉滿幾根檢查", minval=1, group="【快速失敗出場】")
+time_stop_mfe_atr = input.float(1.0, title="期間最大浮盈未達 (ATR 倍數) 則出場", minval=0.1, step=0.1, group="【快速失敗出場】")
+
+// ==========================================
+// 4. 出場與防禦設定
+// ==========================================
+enable_tp_trail   = input.bool(true, title="💰 啟用動態保利 (高點回吐鎖利)", group="【保利設定】")
+tp_start_points   = input.float(400.0, title="啟動保利所需浮盈點數 (可設幾百點)", minval=10.0, step=10.0, group="【保利設定】")
+tp_pullback_pct   = input.float(40.0, title="最高浮盈回吐平倉比例 (%)", minval=5.0, maxval=80.0, step=5.0, group="【保利設定】")
+
+enable_hard_stop  = input.bool(true, title="🛑 啟用 ATR 硬停損 (盤中觸價)", group="【停損設定】")
+sl_atr_mult       = input.float(2.5, title="停損距離 (進場時 ATR 倍數)", minval=0.5, step=0.1, group="【停損設定】")
+sl_max_points     = input.float(0.0, title="停損點數上限 (0=不設上限)", minval=0.0, step=10.0, group="【停損設定】")
+enable_breakeven  = input.bool(true, title="🔒 啟用保本移損", group="【停損設定】")
+be_atr_mult       = input.float(1.0, title="浮盈達幾倍 ATR 後移至保本", minval=0.1, step=0.1, group="【停損設定】")
+be_offset_points  = input.float(5.0, title="保本價加碼點數 (覆蓋手續費)", minval=0.0, step=1.0, group="【停損設定】")
+enable_profit_lock = input.bool(true, title="🪜 浮盈鎖利 (盤中觸價)", group="【停損設定】")
+lock_trigger_atr  = input.float(1.5, title="最大浮盈達幾倍 ATR 啟動鎖利", minval=0.1, step=0.1, group="【停損設定】")
+lock_keep_pct     = input.float(40.0, title="鎖住最大浮盈的比例 (%)", minval=5.0, maxval=90.0, step=5.0, group="【停損設定】")
+
+enable_gap_exit   = input.bool(true, title="🚨 啟用早盤跳空開低市價出場", group="早盤跳空保護")
+gap_down_pct      = input.float(2.0, title="跳空開低門檻 (%)", minval=0.1, step=0.1, group="早盤跳空保護")
+
+// --- 時段過濾設定 ---
+filter_1500_1800  = input.bool(false, title="🚫 限制時段：15:00-18:00 不進場", group="時段過濾")
+filter_0000_0400  = input.bool(false, title="🚫 限制時段 0：00:00-04:00 不進場", group="時段過濾")
+filter_0400_0430  = input.bool(true, title="🚫 限制時段 1：04:00-04:30 不進場", group="時段過濾")
+filter_0430_0500  = input.bool(true, title="🚫 限制時段 2：04:30-05:00 不進場", group="時段過濾")
+
+show_heat_bg      = input.bool(false, title="顯示熱度背景色", group="顯示")
+show_blocked      = input.bool(true, title="顯示被過濾掉的突破 (灰色 ×)", group="顯示")
+
+// ==========================================
+// 5. 時段判定 (以 Asia/Taipei 為準)
+// ==========================================
+is_day_session  = not na(time(timeframe.period, "0845-1345", "Asia/Taipei"))
+session_mult    = is_day_session ? 1.0 : night_ratio
+
+current_hour    = hour(time, "Asia/Taipei")
+current_minute  = minute(time, "Asia/Taipei")
+time_in_minutes = current_hour * 60 + current_minute
+
+in_no_trade_afternoon = filter_1500_1800 and (time_in_minutes >= 900 and time_in_minutes < 1080)
+in_no_trade_0         = filter_0000_0400 and (time_in_minutes >= 0 and time_in_minutes < 240)
+in_no_trade_1         = filter_0400_0430 and (time_in_minutes >= 240 and time_in_minutes < 270)
+in_no_trade_2         = filter_0430_0500 and (time_in_minutes >= 270 and time_in_minutes < 300)
+
+is_trading_allowed    = not in_no_trade_afternoon and not in_no_trade_0 and not in_no_trade_1 and not in_no_trade_2
+is_morning_open_bar   = (current_hour == 8 and current_minute == 45)
+
+// ==========================================
+// 6. 原始多項式中軌計算
+// ==========================================
+f_poly2(src, len) =>
+    float s0 = len
+    float s1 = 0.0, float s2 = 0.0, float s3 = 0.0, float s4 = 0.0
+    for i = 0 to len - 1
+        s1 += i
+        s2 += math.pow(i, 2)
+        s3 += math.pow(i, 3)
+        s4 += math.pow(i, 4)
+
+    float t0 = 0.0, float t1 = 0.0, float t2 = 0.0
+    for i = 0 to len - 1
+        y = src[i]
+        t0 += y
+        t1 += i * y
+        t2 += math.pow(i, 2) * y
+
+    float d = s0 * (s2 * s4 - s3 * s3) - s1 * (s1 * s4 - s2 * s3) + s2 * (s1 * s3 - s2 * s2)
+    float a = (t0 * (s2 * s4 - s3 * s3) - t1 * (s1 * s4 - s2 * s3) + t2 * (s1 * s3 - s2 * s2)) / d
+    a
+
+raw_midline = f_poly2(close, poly_len)
+midline     = ta.ema(raw_midline, smooth_len)
+
+// ==========================================
+// 7. 基礎動態通道半徑計算
+// ==========================================
+[diplus, diminus, adx] = ta.dmi(adx_len, adx_len)
+atr = ta.atr(atr_len)
+
+dynamic_mult  = base_mult * ((100 - adx) / 50) * session_mult
+base_distance = atr * dynamic_mult
+
+// ==========================================
+// 8. 帶量收縮核心：滾動 30 分鐘 1分K 多空熱度
+// ==========================================
+[o_arr_1m, c_arr_1m, v_arr_1m] = request.security_lower_tf(syminfo.tickerid, "1", [open, close, volume])
+
+// 8-1. 當根 K 棒內的 1 分K 多空量
+float bull_vol_bar = 0.0
+float bear_vol_bar = 0.0
+n_1m = array.size(c_arr_1m)
+if n_1m > 0
+    for i = 0 to n_1m - 1
+        c_i = array.get(c_arr_1m, i)
+        o_i = array.get(o_arr_1m, i)
+        v_i = array.get(v_arr_1m, i)
+        if c_i > o_i
+            bull_vol_bar += v_i
+        else if c_i < o_i
+            bear_vol_bar += v_i
+        else
+            bull_vol_bar += v_i * 0.5
+            bear_vol_bar += v_i * 0.5
+
+// 8-2. 換盤 (日/夜盤切換或休市斷層) 時重置視窗，避免 08:45 開盤還在統計夜盤的量
+tf_minutes     = timeframe.in_seconds(timeframe.period) / 60.0
+heat_bars      = math.max(1, math.round(heat_window_min / tf_minutes))
+gap_ms         = math.max(30.0, 2.0 * tf_minutes) * 60000.0
+new_session    = bar_index == 0 or is_day_session != is_day_session[1] or (time - time[1]) > gap_ms
+bars_in_sess   = ta.barssince(new_session) + 1
+heat_win       = math.max(1, math.min(heat_bars, nz(bars_in_sess, heat_bars)))
+
+cum_bull       = ta.cum(bull_vol_bar)
+cum_bear       = ta.cum(bear_vol_bar)
+bull_win       = cum_bull - nz(cum_bull[heat_win])
+bear_win       = cum_bear - nz(cum_bear[heat_win])
+total_win      = bull_win + bear_win
+net_bias_win   = total_win > 0 ? (bull_win - bear_win) / total_win : 0.0
+
+// 8-3. 帶量判定：以「每根 K 棒平均量」對比日/夜盤各自的基準 (夜盤量天生較小，不能共用基準)
+avg_vol_win = total_win / heat_win
+var float day_vol_base   = na
+var float night_vol_base = na
+prev_base   = is_day_session ? day_vol_base : night_vol_base
+vol_ratio   = na(prev_base) or prev_base <= 0 ? 1.0 : avg_vol_win / prev_base
+base_alpha  = 2.0 / (vol_base_len + 1)
+if total_win > 0
+    if is_day_session
+        day_vol_base   := na(day_vol_base) ? avg_vol_win : day_vol_base + base_alpha * (avg_vol_win - day_vol_base)
+    else
+        night_vol_base := na(night_vol_base) ? avg_vol_win : night_vol_base + base_alpha * (avg_vol_win - night_vol_base)
+
+vol_factor = enable_vol_gate ? math.min(vol_ratio / vol_full_ratio, 1.0) : 1.0
+
+// 8-4. 多空熱度分開計算
+bull_heat = ta.ema(math.max(net_bias_win, 0.0) * vol_factor, morale_smooth)
+bear_heat = ta.ema(math.max(-net_bias_win, 0.0) * vol_factor, morale_smooth)
+
+current_contract_weight = is_day_session ? day_contract_weight : night_contract_weight
+upper_heat   = directional_contract ? bull_heat : bull_heat + bear_heat
+lower_heat   = directional_contract ? bear_heat : bull_heat + bear_heat
+upper_factor = enable_contract ? math.max(min_band_ratio, 1.0 - upper_heat * current_contract_weight) : 1.0
+lower_factor = enable_contract ? math.max(min_band_ratio, 1.0 - lower_heat * current_contract_weight) : 1.0
+
+upper_band = midline + (base_distance * upper_factor)
+lower_band = midline - (base_distance * lower_factor)
+
+// ==========================================
+// 9. 動態保利 + 停損 (皆只升不降)
+// ==========================================
+var float max_favorable_price = na
+var float tp_exit_price       = na
+var float entry_atr           = na
+var float last_trade_high     = na
+
+if (strategy.position_size > 0)
+    max_favorable_price := math.max(nz(max_favorable_price, high), high)
+    last_trade_high     := max_favorable_price
+
+    if (enable_tp_trail)
+        max_profit = max_favorable_price - strategy.position_avg_price
+        // 最高浮盈達到設定門檻後啟動
+        if (max_profit >= tp_start_points)
+            calc_stop = max_favorable_price - (max_profit * (tp_pullback_pct / 100.0))
+            // 保利價只升不降
+            tp_exit_price := math.max(nz(tp_exit_price, calc_stop), calc_stop)
+else
+    max_favorable_price := na
+    tp_exit_price       := na
+
+f_sl_distance(a) =>
+    d = sl_atr_mult * a
+    sl_max_points > 0 ? math.min(d, sl_max_points) : d
+
+float stop_price = na
+if (strategy.position_size > 0 and not na(entry_atr))
+    avg = strategy.position_avg_price
+    if (enable_hard_stop)
+        stop_price := avg - f_sl_distance(entry_atr)
+    mfe = max_favorable_price - avg
+    if (enable_breakeven and mfe >= be_atr_mult * entry_atr)
+        be_price   = avg + be_offset_points
+        stop_price := na(stop_price) ? be_price : math.max(stop_price, be_price)
+    // 鎖利階梯：最大浮盈越大鎖得越多，補上「保本」與「tp_start_points 保利」之間的空窗
+    if (enable_profit_lock and mfe >= lock_trigger_atr * entry_atr)
+        lock_price = avg + mfe * lock_keep_pct / 100.0
+        stop_price := na(stop_price) ? lock_price : math.max(stop_price, lock_price)
+
+// ==========================================
+// 10. 進出場信號與策略執行
+// ==========================================
+// 出場後冷卻；記錄虧損單最高價，作為下次進場的門檻
+var int   last_exit_bar = na
+var float reentry_level = na
+if (strategy.closedtrades > strategy.closedtrades[1])
+    last_exit_bar := bar_index
+    if (strategy.closedtrades.profit(strategy.closedtrades - 1) < 0)
+        reentry_level := last_trade_high
+    else
+        reentry_level := na
+// 價格一路跌破下軌代表結構已重置，舊的失敗高點不再有參考價值
+if (close < lower_band)
+    reentry_level := na
+cooldown_ok = cooldown_bars == 0 or na(last_exit_bar) or (bar_index - last_exit_bar) > cooldown_bars
+
+// --- 盤整過濾 ---
+chop_range = ta.highest(high, chop_len) - ta.lowest(low, chop_len)
+chop       = chop_range > 0 ? 100.0 * math.log10(math.sum(ta.tr(true), chop_len) / chop_range) / math.log10(chop_len) : 100.0
+slope_ok   = not use_slope_filter or (midline - midline[slope_len]) >= slope_min_atr * atr
+chop_ok    = not use_chop_filter or chop <= chop_max
+di_ok      = not use_di_filter or diplus > diminus
+trend_ok   = slope_ok and chop_ok and di_ok
+
+// --- 突破品質：同一段突破 (收在上軌之上期間) 只進場一次 ---
+var int  above_cnt = 0
+var bool brk_used  = false
+above_cnt := close > upper_band ? above_cnt + 1 : 0
+if (close <= upper_band)
+    brk_used := false
+
+bar_range      = high - low
+bar_quality_ok = not use_bar_quality or bar_range <= 0 or (close - low) / bar_range >= bar_close_pos
+buffer_ok      = (close - upper_band) >= brk_buffer_atr * atr
+reentry_ok     = not use_loss_reentry or na(reentry_level) or close > reentry_level
+breakout_ok    = above_cnt >= confirm_bars and not brk_used and buffer_ok and bar_quality_ok and reentry_ok
+
+// 1 分K 歷史有上限，較早的 K 棒拿不到熱度資料時不擋進場 (否則早期回測會完全沒有交易)
+entry_heat_ok  = not use_heat_confirm or total_win <= 0 or net_bias_win >= entry_bias_min
+entry_chase_ok = not use_chase_filter or (close - upper_band) <= chase_atr_mult * atr
+long_entry     = breakout_ok and trend_ok and entry_heat_ok and entry_chase_ok and cooldown_ok and is_trading_allowed and barstate.isconfirmed
+
+// 原始 V1 訊號 (收盤穿越上軌) 被過濾掉的位置，方便目視檢查過濾效果
+long_cross   = ta.crossover(close, upper_band) and barstate.isconfirmed
+blocked_sig  = long_cross and not long_entry and strategy.position_size == 0
+
+// --- 出場條件：全部嚴格等待收定確認 ---
+avg_price     = strategy.position_avg_price
+bars_in_trade = strategy.position_size > 0 ? bar_index - strategy.opentrades.entry_bar_index(0) : 0
+trade_mfe     = strategy.position_size > 0 ? nz(max_favorable_price, avg_price) - avg_price : 0.0
+
+exit_lower       = ta.crossunder(close, lower_band) and barstate.isconfirmed
+exit_take_profit = not na(tp_exit_price) and (close <= tp_exit_price) and barstate.isconfirmed
+// 假突破：進場後幾根內就收回通道、而且已跌破成本
+exit_fail        = use_fail_exit and bars_in_trade <= fail_bars and close < upper_band and close < avg_price and barstate.isconfirmed
+exit_mid         = use_mid_exit and close < midline and barstate.isconfirmed
+// 持倉夠久卻一直沒有像樣的浮盈：多半是盤整，先走
+exit_time        = use_time_stop and bars_in_trade >= time_stop_bars and not na(entry_atr) and trade_mfe < time_stop_mfe_atr * entry_atr and barstate.isconfirmed
+
+// 早盤跳空開低判定
+gap_stop_price      = strategy.position_size > 0 ? avg_price * (1.0 - gap_down_pct / 100.0) : na
+is_gap_down_at_open = enable_gap_exit and (strategy.position_size > 0) and is_morning_open_bar and (open <= gap_stop_price)
+
+// --- 訂單執行 ---
+if (long_entry and strategy.position_size == 0)
+    entry_atr := atr
+    brk_used  := true
+    strategy.entry("Long", strategy.long, comment="Long")
+    // 進場同時掛好停損，避免成交當根無保護 (以本根收盤估算進場價，下一根起改用實際均價)
+    if (enable_hard_stop)
+        strategy.exit("SL", "Long", stop=close - f_sl_distance(atr), comment="N4")
+
+// 出場優先順序：N4 停損/保本/鎖利 (盤中觸價) → N1 早盤跳空 → N2 回吐保利
+//             → N5 假突破 → N7 跌破中軌 → N3 跌破下軌 → N6 時間停損
+if (strategy.position_size > 0 and not na(stop_price))
+    strategy.exit("SL", "Long", stop=stop_price, comment="N4")
+
+if (strategy.position_size > 0)
+    if (is_gap_down_at_open)
+        strategy.close("Long", comment="N1", immediately=true)
+    else if (exit_take_profit)
+        strategy.close("Long", comment="N2")
+    else if (exit_fail)
+        strategy.close("Long", comment="N5")
+    else if (exit_mid)
+        strategy.close("Long", comment="N7")
+    else if (exit_lower)
+        strategy.close("Long", comment="N3")
+    else if (exit_time)
+        strategy.close("Long", comment="N6")
+
+// ==========================================
+// 11. 繪製通道、保利線與停損線
+// ==========================================
+plot(midline, color=is_day_session ? color.fuchsia : color.orange, title="多項式中軌", linewidth=2)
+p_upper = plot(upper_band, color=color.new(color.blue, 0), title="上軌 (多方帶量收縮)")
+p_lower = plot(lower_band, color=color.new(color.blue, 0), title="下軌 (空方帶量收縮)")
+fill(p_upper, p_lower, color=color.new(color.blue, 90), title="通道背景")
+
+plot(strategy.position_size > 0 and not na(tp_exit_price) ? tp_exit_price : na, color=color.orange, style=plot.style_linebr, linewidth=2, title="動態保利線")
+plot(strategy.position_size > 0 ? stop_price : na, color=color.red, style=plot.style_linebr, linewidth=1, title="停損/保本線")
+
+plotshape(show_blocked and blocked_sig, title="被過濾的突破", style=shape.xcross, location=location.abovebar, color=color.gray, size=size.tiny)
+plot(use_loss_reentry and strategy.position_size == 0 ? reentry_level : na, color=color.gray, style=plot.style_linebr, linewidth=1, title="虧損後再進場門檻")
+
+bgcolor(show_heat_bg ? (nz(bull_heat) > nz(bear_heat) ? color.new(color.green, 100 - nz(bull_heat) * 40) : color.new(color.red, 100 - nz(bear_heat) * 40)) : na, title="熱度背景")
