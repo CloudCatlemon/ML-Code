@@ -128,6 +128,13 @@ label.chk{display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-siz
 .chip{font-size:11px;padding:1px 7px;border-radius:9px;background:#eceff5;color:#8a93a8;border:1px solid #d5dbe8}
 .chip.on{background:var(--accent-soft);color:var(--accent-2);border-color:#f0a9c3}
 .chip code,.tabbody code{font-family:"Pixelify Sans",monospace;font-size:11px}
+.autobtn{font:700 12px "Noto Sans TC",sans-serif;border:1px solid #5d74aa;border-radius:6px;padding:5px 11px;cursor:pointer;background:#2c3b66;color:#cfd9f5}
+.autobtn[aria-pressed="true"]{background:#5fd07a;color:#0f3a1c;border-color:#3f9f58}
+.keys{margin:-4px 0 0;font-size:12px;color:#aebbe0;line-height:2}
+.keys kbd{display:inline-block;min-width:20px;text-align:center;font:700 11px "Pixelify Sans",monospace;padding:0 5px;margin-right:2px;border:1px solid #5d74aa;border-bottom-width:2px;border-radius:4px;background:#26335a;color:#eef2fb}
+#game:focus-visible{outline:2px solid #ffb400;outline-offset:-2px}
+.skp{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;margin:0 0 6px;font-size:13px}
+.skp b{font-family:"Pixelify Sans",monospace;font-size:18px;color:var(--accent-2)}
 .foot{font-size:11px;color:#8193c2;text-align:center}
 @media (prefers-reduced-motion:reduce){.bar>i{transition:none}}
 </style>
@@ -144,11 +151,13 @@ label.chk{display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-siz
         <button type="button" data-speed="2" aria-pressed="false">x2</button>
         <button type="button" data-speed="4" aria-pressed="false">x4</button>
       </div>
+      <button type="button" class="autobtn" id="autoBtn" aria-pressed="true">自動戰鬥 ON</button>
       <span class="save-note" id="saveNote">自動存檔</span>
     </div>
   </header>
 
-  <div class="stage"><canvas id="game" aria-label="遊戲畫面：角色自動在地圖上打怪"></canvas></div>
+  <div class="stage"><canvas id="game" tabindex="0" aria-label="遊戲畫面：角色自動在地圖上打怪，可用鍵盤操作"></canvas></div>
+  <p class="keys"><kbd>←</kbd><kbd>→</kbd> 移動 · <kbd>↑</kbd> 跳躍／對話／進傳送點 · <kbd>↓</kbd> 從平台跳下 · <kbd>Space</kbd> 跳躍 · <kbd>Z</kbd> 攻擊 · <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 技能 · <kbd>S</kbd> 坐下 · <kbd>Enter</kbd> 對話 · <kbd>A</kbd> 自動／手動</p>
 
   <div class="panels">
     <div class="col">
@@ -298,12 +307,18 @@ const LAYOUTS=[
  [[220,640,296],[900,1300,296],[1450,1760,296],[420,1000,196],[1150,1550,196],[700,1000,106]],
 ];
 const MAPS=[
- {n:'普隆德拉南門原野',code:'prt_fild08',req:1,theme:'field',mobs:['poring','fabre','lunatic','picky'],mvp:'angeling',lay:0},
- {n:'斐揚森林',code:'pay_fild04',req:10,theme:'forest',mobs:['willow','poporing','spore','smokie'],mvp:'eddga',lay:1},
- {n:'夢羅克沙漠',code:'moc_fild07',req:20,theme:'desert',mobs:['drops','peco','scorpion','wolf'],mvp:'osiris',lay:0},
- {n:'斐揚洞窟',code:'pay_dun02',req:34,theme:'cave',mobs:['familiar','zombie','skeleton','skelarcher'],mvp:'moonlight',lay:2},
- {n:'格拉斯海姆古城',code:'glast_01',req:55,theme:'ruins',mobs:['raydric','evildruid','wraith','abysmal'],mvp:'darklord',lay:1},
- {n:'迷宮森林',code:'prt_maze03',req:75,theme:'maze',mobs:['baphojr','deviling','darktree'],mvp:'baphomet',lay:2},
+ {n:'普隆德拉南門原野',code:'prt_fild08',req:1,theme:'field',mobs:['poring','fabre','lunatic','picky'],mvp:'angeling',lay:0,portals:[[60,6],[1740,7]]},
+ {n:'斐揚森林',code:'pay_fild04',req:10,theme:'forest',mobs:['willow','poporing','spore','smokie'],mvp:'eddga',lay:1,portals:[[60,9],[1740,11]]},
+ {n:'夢羅克沙漠',code:'moc_fild07',req:20,theme:'desert',mobs:['drops','peco','scorpion','wolf'],mvp:'osiris',lay:0,portals:[[60,10]]},
+ {n:'斐揚洞窟',code:'pay_dun02',req:34,theme:'cave',mobs:['familiar','zombie','skeleton','skelarcher'],mvp:'moonlight',lay:2,portals:[[60,9]]},
+ {n:'格拉斯海姆古城',code:'glast_01',req:55,theme:'ruins',mobs:['raydric','evildruid','wraith','abysmal'],mvp:'darklord',lay:1,portals:[[60,8]]},
+ {n:'迷宮森林',code:'prt_maze03',req:75,theme:'maze',mobs:['baphojr','deviling','darktree'],mvp:'baphomet',lay:2,portals:[[60,6]]},
+ {n:'普隆德拉',code:'prontera',town:1,theme:'prontera',lay:-1,portals:[[60,0],[1740,5]],npcs:[{k:'kafra',x:330},{k:'shop',x:580},{k:'equip',x:820},{k:'refine',x:1060},{k:'job',cls:'acolyte',x:1340}]},
+ {n:'伊斯魯得',code:'izlude',town:1,theme:'izlude',lay:-1,portals:[[60,0]],npcs:[{k:'kafra',x:330},{k:'shop',x:600},{k:'equip',x:880},{k:'job',cls:'swordsman',x:1200}]},
+ {n:'吉芬',code:'geffen',town:1,theme:'geffen',lay:-1,portals:[[60,4]],npcs:[{k:'kafra',x:330},{k:'shop',x:600},{k:'refine',x:880},{k:'job',cls:'mage',x:1200}]},
+ {n:'斐揚',code:'payon',town:1,theme:'payon',lay:-1,portals:[[60,1],[1740,3]],npcs:[{k:'kafra',x:330},{k:'shop',x:600},{k:'equip',x:880},{k:'job',cls:'archer',x:1200}]},
+ {n:'夢羅克',code:'morocc',town:1,theme:'morroc',lay:-1,portals:[[60,2]],npcs:[{k:'kafra',x:330},{k:'shop',x:600},{k:'equip',x:880},{k:'job',cls:'thief',x:1200}]},
+ {n:'艾爾貝塔',code:'alberta',town:1,theme:'alberta',lay:-1,portals:[[60,1]],npcs:[{k:'kafra',x:330},{k:'shop',x:600},{k:'refine',x:880},{k:'job',cls:'merchant',x:1200}]},
 ];
 
 const SKILLS={
@@ -336,10 +351,10 @@ const SKILLS={
 
 /* ================= 狀態 ================= */
 const SAVE_KEY='ro-idle-save-v1';
-function defaultState(){return{v:1,name:'波利獵人',cls:'novice',L:1,exp:0,JL:1,jexp:0,zeny:300,
+function defaultState(){return{v:2,name:'波利獵人',savePt:6,lastField:0,skl:{},skp:0,cls:'novice',L:1,exp:0,JL:1,jexp:0,zeny:300,
  st:{str:1,agi:1,vit:1,int:1,dex:1,luk:1},pts:44,inv:{red:15,orange:0,yellow:0,white:0,blue:0,ori:0,elu:0},etc:{},cards:{},
  wpn:{t:0,r:0},arm:{t:0,r:0},map:0,
- set:{potHp:50,potSp:15,autoSell:false,mvp:true,autoStat:true,autoMap:true,speed:1},skillOff:{},
+ set:{potHp:50,potSp:15,autoSell:false,mvp:true,autoStat:true,autoSkill:true,autoMap:true,auto:true,speed:1},skillOff:{},
  rate:{e:0,j:0,z:0},kills:0,deaths:0,mvps:0,played:0,t:Date.now()}}
 function merge(a,b){for(const k in b){if(b[k]&&typeof b[k]==='object'&&!Array.isArray(b[k])&&a[k]&&typeof a[k]==='object')merge(a[k],b[k]);else a[k]=b[k]}return a}
 function loadSave(){try{const r=localStorage.getItem(SAVE_KEY);if(r)return merge(defaultState(),JSON.parse(r))}catch(e){}return null}
@@ -355,7 +370,10 @@ const needBase=L=>Math.floor(15+6*Math.pow(L,2.25));
 const needJob=J=>S.cls==='novice'?Math.floor(5+4*Math.pow(J,1.6)):Math.floor(30+12*Math.pow(J,2.1));
 const maxJob=()=>S.cls==='novice'?10:50;
 const statCost=v=>Math.floor((v-1)/10)+2;
-function skLv(sk){if(S.JL<sk.un)return 0;if(S.cls==='novice')return Math.min(10,S.JL);return Math.min(10,1+Math.floor((S.JL-sk.un)/4))}
+function skLv(sk){return S.JL>=sk.un?Math.min(10,S.skl[sk.id]||0):0}
+function addSkill(id){const sk=SKILLS[S.cls].find(x=>x.id===id);if(!sk||S.skp<1||S.JL<sk.un||(S.skl[id]||0)>=10)return false;S.skl[id]=(S.skl[id]||0)+1;S.skp--;return true}
+function autoSkill(){if(!S.set.autoSkill)return;let g=0;while(S.skp>0&&g++<100){const c=SKILLS[S.cls].filter(x=>S.JL>=x.un&&(S.skl[x.id]||0)<10);if(!c.length)break;c.sort((a,b)=>(S.skl[a.id]||0)-(S.skl[b.id]||0));addSkill(c[0].id)}recalc()}
+const bestField=()=>{let b=0;MAPS.forEach((m,i)=>{if(!m.town&&S.L>=m.req)b=i});return holdT>0?Math.max(0,b-1):b};
 function passLv(id){const sk=(SKILLS[S.cls]||[]).find(s=>s.id===id);return sk?skLv(sk):0}
 const sellMult=()=>1+(passLv('overc')?(5+passLv('overc')*2)/100:0);
 
@@ -389,7 +407,7 @@ function autoStat(){
 
 /* ================= 地圖 / 導航 ================= */
 function buildMap(){
- const lay=LAYOUTS[MAP().lay];
+ const lay=MAP().lay<0?[]:LAYOUTS[MAP().lay];
  SURF=[{i:0,x1:0,x2:MAPW,y:GROUND}].concat(lay.map((p,i)=>({i:i+1,x1:p[0],x2:p[1],y:p[2]})));
  EDGES=SURF.map(A=>{const out=[];for(const B of SURF){if(A===B)continue;const lo=Math.max(A.x1,B.x1)+24,hi=Math.min(A.x2,B.x2)-24;if(lo>=hi)continue;
   if(B.y<A.y&&A.y-B.y<=110)out.push({b:B.i,type:'jump',lo,hi});else if(B.y>A.y&&A.i!==0)out.push({b:B.i,type:'drop',lo,hi})}return out});
@@ -399,13 +417,20 @@ function navNext(from,to){
  while(q.length){const a=q.shift();if(a===to)break;for(const e of EDGES[a])if(prev[e.b]<0){prev[e.b]=a;q.push(e.b)}}
  if(prev[to]<0)return null;let c=to;while(prev[c]!==from)c=prev[c];return EDGES[from].find(e=>e.b===c);
 }
-function setMap(i,quiet){
+function setMap(i,quiet,from){
  S.map=i;buildMap();mobs=[];projs=[];loots=[];timers=[];fxs=[];
- hero.x=120;hero.y=GROUND;hero.vy=0;hero.grounded=true;hero.surf=0;hero.target=null;hero.sit=false;cam=0;
- const m=MAP();for(let k=0;k<10;k++)spawnMob();
+ hero.x=120;hero.y=GROUND;hero.vx=0;hero.vy=0;hero.grounded=true;hero.surf=0;hero.target=null;hero.sit=false;
+ const m=MAP();
+ const pt=from!=null&&(m.portals||[]).find(p=>p[1]===from);
+ if(pt){const left=pt[0]<MAPW/2;hero.x=pt[0]+(left?90:-90);hero.face=left?1:-1}
+ cam=clamp(hero.x-W*.45,0,MAPW-W);
+ if(!m.town){S.lastField=i;for(let k=0;k<10;k++)spawnMob()}
  mvpT=180;if(!quiet)log(`移動到 ${m.n}（${m.code}）`,'sys');
  dirty=true;
 }
+function nearPortal(){const h=hero;if(!h.grounded||h.surf!==0)return null;return(MAP().portals||[]).find(p=>Math.abs(p[0]-h.x)<42)||null}
+function nearNpc(){const h=hero;if(!MAP().npcs||!h.grounded||h.surf!==0)return null;let b=null;for(const n of MAP().npcs)if(Math.abs(n.x-h.x)<52&&(!b||Math.abs(n.x-h.x)<Math.abs(b.x-h.x)))b=n;return b}
+function usePortal(p){const to=MAPS[p[1]];if(!to.town&&S.L<to.req)log(`注意：${to.n} 建議等級 Lv ${to.req}`,'bad');setMap(p[1],false,S.map)}
 
 /* ================= 怪物 ================= */
 function mobStats(d){
@@ -478,7 +503,7 @@ function gainExp(e,j){
  if(S.L<99){S.exp+=e;while(S.L<99&&S.exp>=needBase(S.L)){S.exp-=needBase(S.L);S.L++;S.pts+=Math.floor((S.L-1)/5)+3;
   recalc();autoStat();hero.hp=P.maxHp;hero.sp=P.maxSp;lvFx('Base Level Up!');log(`Base Lv 上升到 ${S.L}！`,'lv')}if(S.L>=99)S.exp=0}
  const mj=maxJob();
- if(S.JL<mj){S.jexp+=j;while(S.JL<mj&&S.jexp>=needJob(S.JL)){S.jexp-=needJob(S.JL);S.JL++;lvFx('Job Level Up!');log(`Job Lv 上升到 ${S.JL}！`,'lv');recalc()}if(S.JL>=mj)S.jexp=0}
+ if(S.JL<mj){S.jexp+=j;while(S.JL<mj&&S.jexp>=needJob(S.JL)){S.jexp-=needJob(S.JL);S.JL++;S.skp++;lvFx('Job Level Up!');log(`Job Lv 上升到 ${S.JL}！`,'lv');recalc()}if(S.JL>=mj)S.jexp=0;autoSkill()}
  if(S.cls==='novice'&&S.JL>=10&&!jobPrompted){jobPrompted=true;timers.push({t:1.2,fn:openJobModal})}
  dirty=true;
 }
@@ -491,7 +516,11 @@ function heroDie(){
  deathLog=deathLog.filter(t=>gt-t<150);
  if(deathLog.length>=3&&S.set.autoMap&&S.map>0){holdT=300;deathLog=[];log('連續陣亡，暫時退回較低等級的地圖','sys')}
 }
-function respawn(){hero.dead=false;hero.hp=P.maxHp;hero.sp=P.maxSp;hero.x=120;hero.y=GROUND;hero.surf=0;hero.grounded=true;hero.vy=0;hero.inv=2.5;log('在儲存點復活了','sys')}
+function respawn(){
+ hero.dead=false;hero.hp=P.maxHp;hero.sp=P.maxSp;hero.inv=2.5;const back=MAP().town?null:S.map;
+ setMap(S.savePt,true);log(`在記錄點 ${MAP().n} 復活了`,'sys');
+ if(S.set.auto&&back!=null)timers.push({t:3,fn:()=>{if(S.set.auto&&MAP().town){setMap(S.set.autoMap?bestField():back);log('自動戰鬥：卡普拉傳送回狩獵地點','sys')}}});
+}
 function usePots(){
  if(hero.potCd>0||hero.dead)return;
  if(hero.hp<P.maxHp*S.set.potHp/100){const miss=P.maxHp-hero.hp,mul=1+P.vit*.02;
@@ -519,12 +548,12 @@ function approachRange(){
 }
 function shoot(kind,t,onHit){projs.push({x:hero.x+hero.face*16,y:hero.y-32,t,kind,spd:kind==='arrow'?900:640,onHit})}
 function shout(n){floats.push({x:hero.x,y:hero.y-84,text:n+'!!',col:'#fff',vy:-18,g:0,life:1.1,max:1.1,size:13,kind:'shout'})}
-function trySkill(t){
+function trySkill(t,only){
  for(const sk of SKILLS[S.cls]){
-  if(sk.passive)continue;const l=skLv(sk);if(!l||S.skillOff[sk.id]||(hero.cds[sk.id]||0)>0||!spOK(sk,l))continue;
+  if(sk.passive||(only&&sk.id!==only))continue;const l=skLv(sk);if(!l||(!only&&S.skillOff[sk.id])||(hero.cds[sk.id]||0)>0||!spOK(sk,l))continue;
   const rng=sk.range||CL().range;let ok=false;
   switch(sk.kind){
-   case'heal':if(hero.hp<P.maxHp*.6){healHero(sk.amt(l));ok=true}break;
+   case'heal':if(hero.hp<P.maxHp*(only?1:.6)){healHero(sk.amt(l));ok=true}break;
    case'single':if(t&&canHit(t,rng)){const r=calcPhys(t,sk.mult(l),sk.hitB?sk.hitB(l):0,sk.flat?sk.flat(l):0);applyHit(t,r,{big:1});slash(t,sk.c);
      if(sk.poison&&!r.miss&&!t.dead)t.poison={t:4,tick:1,dps:sk.poison(l)+P.atk*.08};
      if(sk.zeny)for(let i=0;i<8;i++)parts.push({x:hero.x,y:hero.y-40,vx:rand(-120,120),vy:-rand(150,300),life:.8,max:.8,c:'#f2c23a',sz:3,g:900});ok=true}break;
@@ -575,6 +604,7 @@ function heroUpdate(dt){
  h.hp=Math.min(P.maxHp,h.hp+(P.maxHp*.004+P.vit*.05)*sitM*dt+P.maxHp*passLv('hpr')*.0015*dt);
  h.sp=Math.min(P.maxSp,h.sp+(P.maxSp*.01+P.int*.05)*sitM*dt+P.maxSp*passLv('spr')*.002*dt);
  usePots();
+ if(!S.set.auto||MAP().town){manualControl(dt);return}
  const aggroed=mobs.some(m=>m.aggro&&!m.dead);
  if(h.sit){if(aggroed||(h.hp>=P.maxHp*.95&&h.sp>=P.maxSp*.6))h.sit=false;else{phys(0,dt);return}}
  const noHpPot=!POTS.some(p=>p.hp&&S.inv[p.id]>0);
@@ -596,9 +626,34 @@ function heroUpdate(dt){
  }
  phys(dir,dt);
 }
+const K={left:false,right:false,down:false,atk:false,upP:false,jumpP:false,downP:false,enterP:false,sitP:false,skillP:-1};
+function clearPresses(){K.upP=K.jumpP=K.downP=K.enterP=K.sitP=false;K.skillP=-1}
+function manualTarget(r){let b=null,bs=1e9;for(const m of mobs){if(m.dead||!canHit(m,r))continue;const dx=m.x-hero.x,sc=Math.abs(dx)+(Math.sign(dx)===-hero.face?200:0);if(sc<bs){bs=sc;b=m}}return b}
+function manualControl(dt){
+ const h=hero,town=!!MAP().town;
+ if(h.sit){if(K.left||K.right||K.jumpP||K.upP||K.atk||K.skillP>=0||K.sitP)h.sit=false;else{phys(0,dt);clearPresses();return}}
+ else if(K.sitP&&h.grounded){h.sit=true;clearPresses();phys(0,dt);return}
+ const dir=(K.right?1:0)-(K.left?1:0);
+ if(K.upP||K.enterP){const pt=nearPortal(),npc=nearNpc();
+  if(pt){clearPresses();usePortal(pt);return}
+  if(npc){clearPresses();K.left=K.right=false;openNpc(npc);return}
+  if(K.upP&&h.grounded){h.vy=JUMPV;h.grounded=false;h.vx=dir*P.speed}}
+ if(K.jumpP&&h.grounded){if(K.down&&h.surf!==0){h.dropIgn=h.surf;h.grounded=false;h.vy=40;h.vx=0}else{h.vy=JUMPV;h.grounded=false;h.vx=dir*P.speed}}
+ else if(K.downP&&h.grounded&&h.surf!==0){h.dropIgn=h.surf;h.grounded=false;h.vy=40;h.vx=0}
+ if(!town&&h.atkCd<=0&&h.grounded){
+  if(K.skillP>=0){const sk=SKILLS[S.cls].filter(x=>!x.passive)[K.skillP];
+   if(!sk)floatText(h.x,h.y-80,'沒有這個技能','#dfe6ff',{size:13});
+   else{const l=skLv(sk);
+    if(!l)floatText(h.x,h.y-80,'尚未學習 '+sk.n,'#dfe6ff',{size:13});
+    else if(!spOK(sk,l))floatText(h.x,h.y-80,sk.zeny&&S.zeny<sk.zeny(l)?'Zeny 不足':'SP 不足','#9fc4ff',{size:13});
+    else if((h.cds[sk.id]||0)<=0){const t=manualTarget(sk.range||CL().range);if(t)h.face=t.x>=h.x?1:-1;if(!trySkill(t,sk.id)&&sk.kind!=='heal')floatText(h.x,h.y-80,'範圍內沒有目標','#dfe6ff',{size:13})}}}
+  else if(K.atk){const t=manualTarget(CL().range);if(t){h.face=t.x>=h.x?1:-1;normalAttack(t)}else{h.anim=0;h.animDur=.25;h.atkCd=Math.min(.4,P.aspdInt)}}
+ }
+ phys(h.anim<h.animDur&&!h.ranged&&h.grounded?0:dir,dt);clearPresses();
+}
 function phys(dir,dt){
  const h=hero;
- if(h.grounded){h.vx=dir*P.speed;h.moving=!!dir;if(dir)h.face=dir;if(dir)h.walkPh+=dt*11}else h.vx=0;
+ if(h.grounded){h.vx=dir*P.speed;h.moving=!!dir;if(dir)h.face=dir;if(dir)h.walkPh+=dt*11}else if(S.set.auto&&!MAP().town)h.vx=0;
  h.x=clamp(h.x+h.vx*dt,16,MAPW-16);
  if(h.grounded){const s=SURF[h.surf];if(h.x<s.x1-2||h.x>s.x2+2){h.grounded=false;h.vy=0;h.dropIgn=-1}}
  if(!h.grounded){const py=h.y;h.vy+=GRAV*dt;h.y+=h.vy*dt;
@@ -651,10 +706,10 @@ function update(dt){
  for(const f of floats){f.life-=dt;f.vy+=f.g*dt;f.y+=f.vy*dt}floats=floats.filter(f=>f.life>0);
  if(banner){banner.life-=dt;if(banner.life<=0)banner=null}
  // MVP
- if(!mobs.some(m=>m.boss&&!m.dead)){mvpT-=dt;if(mvpT<=0){const m=spawnMob(MAP().mvp);mvpT=300;showBanner('MVP 出現了！',m.d.n+' 降臨 '+MAP().n,'#ff6a6a');log(`【廣播】${m.d.n} 出現在 ${MAP().n}！`,'mvp')}}
+ if(!MAP().town&&!mobs.some(m=>m.boss&&!m.dead)){mvpT-=dt;if(mvpT<=0){const m=spawnMob(MAP().mvp);mvpT=300;showBanner('MVP 出現了！',m.d.n+' 降臨 '+MAP().n,'#ff6a6a');log(`【廣播】${m.d.n} 出現在 ${MAP().n}！`,'mvp')}}
  // 自動換圖
  holdT=Math.max(0,holdT-dt);autoMapT-=dt;
- if(autoMapT<=0){autoMapT=5;if(S.set.autoMap&&!hero.dead){let b=0;MAPS.forEach((m,i)=>{if(S.L>=m.req)b=i});if(holdT>0)b=Math.max(0,b-1);if(b!==S.map)setMap(b)}}
+ if(autoMapT<=0){autoMapT=5;if(S.set.autoMap&&S.set.auto&&!hero.dead&&!MAP().town){const b=bestField();if(b!==S.map)setMap(b)}}
  // 效率統計
  acc.t+=dt;if(acc.t>=1){const a=Math.max(1/300,1/(S.played+1));for(const k of['e','j','z'])S.rate[k]=S.rate[k]*(1-a)+(acc[k]/acc.t)*a;acc={e:0,j:0,z:0,t:0}}
  // 攝影機
@@ -894,6 +949,12 @@ const THEMES={
  desert:{sky:['#ef9d58','#ffe3a8'],far:'#e2aa6c',mid:'#d9b27a',gTop:'#f0cf8e',gBody:'#d8a95e',gLine:'#b88a45',pTop:'#ecc98a',pBody:'#c49455',style:'sand'},
  cave:{sky:['#15121c','#342b40'],far:'#2a2333',mid:'#3a3045',gTop:'#6b5d6e',gBody:'#3e3342',gLine:'#2c2430',pTop:'#7b6c7c',pBody:'#4a3e4e',style:'stone',dark:1},
  ruins:{sky:['#141833','#4a3e6e'],far:'#2b2748',mid:'#373157',gTop:'#5c567a',gBody:'#34304a',gLine:'#26223a',pTop:'#6d6790',pBody:'#3f3a58',style:'stone',dark:1},
+ prontera:{sky:['#74bdf0','#e3f4ff'],far:'#b5cde0',mid:'#b7ad98',gTop:'#cfc6b2',gBody:'#9c9282',gLine:'#857b6c',pTop:'#d6cfbf',pBody:'#a39a88',style:'stone',town:'prt'},
+ izlude:{sky:['#6ec2f2','#e6f7ff'],far:'#7fc1d8',mid:'#c9b48a',gTop:'#dccda4',gBody:'#b89e70',gLine:'#9a825a',pTop:'#dccda4',pBody:'#b89e70',style:'sand',town:'izl'},
+ geffen:{sky:['#7a68b8','#f2cfc4'],far:'#8f82b5',mid:'#8f86a3',gTop:'#b8b0a0',gBody:'#8a8272',gLine:'#6f685a',pTop:'#b8b0a0',pBody:'#8a8272',style:'stone',town:'gef'},
+ payon:{sky:['#f0ae6e','#fde7c4'],far:'#8aa66b',mid:'#7a5a3a',gTop:'#b88a58',gBody:'#8a603a',gLine:'#6e4a2c',pTop:'#b88a58',pBody:'#8a603a',style:'plank',town:'pay'},
+ morroc:{sky:['#ef9d58','#ffe3a8'],far:'#e2aa6c',mid:'#caa06a',gTop:'#ecd09a',gBody:'#c89a58',gLine:'#a87a40',pTop:'#ecd09a',pBody:'#c89a58',style:'sand',town:'moc'},
+ alberta:{sky:['#79c3ee','#e4f5ff'],far:'#5fb0d6',mid:'#a88a60',gTop:'#c8a878',gBody:'#9a7a50',gLine:'#7e6240',pTop:'#c8a878',pBody:'#9a7a50',style:'plank',town:'alb'},
  maze:{sky:['#0d2a26','#3b7563'],far:'#1d4a3f',mid:'#1f4c40',gTop:'#3e8a5a',gBody:'#2a3a2c',gLine:'#1d2a1f',pTop:'#4a9a64',pBody:'#324a36',style:'grass',dark:1},
 };
 function ridge(g,off,col,base,amp,f1,f2,seed){g.fillStyle=col;g.beginPath();g.moveTo(0,H);for(let x=0;x<=W;x+=8){const wx=x+off;g.lineTo(x,base-Math.sin(wx*f1+seed)*amp-Math.sin(wx*f2+seed*3)*amp*.45)}g.lineTo(W,H);g.closePath();g.fill()}
@@ -902,6 +963,37 @@ function cloud(g,x,y,s){g.fillStyle='rgba(255,255,255,.9)';circ(g,x,y,16*s);circ
 function castle(g,x,y,col){g.fillStyle=col;g.fillRect(x-60,y-55,120,55);g.fillRect(x-84,y-88,26,88);g.fillRect(x+58,y-88,26,88);g.fillRect(x-16,y-118,32,70);
  tri(g,x-88,y-88,x-71,y-116,x-54,y-88);tri(g,x+54,y-88,x+71,y-116,x+88,y-88);tri(g,x-20,y-118,x,y-150,x+20,y-118);
  g.fillStyle='rgba(255,255,255,.35)';for(let i=0;i<5;i++)g.fillRect(x-48+i*22,y-40,6,10)}
+function skyDeco(g,t){const sg=g.createRadialGradient(830,70,6,830,70,90);sg.addColorStop(0,'rgba(255,250,210,1)');sg.addColorStop(.25,'rgba(255,244,190,.8)');sg.addColorStop(1,'rgba(255,244,190,0)');g.fillStyle=sg;g.fillRect(700,0,260,180);each(cam*.06+t*7,300,(x,k)=>cloud(g,x+hash(k+3)*80,40+hash(k)*70,.7+hash(k+7)*.6))}
+function house(g,x,b,w,h,wall,roof,kind){
+ g.fillStyle=wall;g.fillRect(x-w/2,b-h,w,h);g.fillStyle=roof;
+ if(kind==='pagoda'){g.beginPath();g.moveTo(x-w/2-14,b-h+2);g.quadraticCurveTo(x,b-h-6,x+w/2+14,b-h+2);g.lineTo(x+w/2-4,b-h-20);g.quadraticCurveTo(x,b-h-28,x-w/2+4,b-h-20);g.closePath();g.fill()}
+ else if(kind==='dome'){g.fillRect(x-w/2-3,b-h-5,w+6,5);g.beginPath();g.arc(x,b-h-5,w*.3,Math.PI,0);g.fill()}
+ else tri(g,x-w/2-7,b-h,x,b-h-w*.42,x+w/2+7,b-h);
+ g.fillStyle='rgba(40,28,18,.6)';rr(g,x-6,b-19,12,19,5);g.fill();
+ g.fillStyle='rgba(255,236,170,.8)';g.fillRect(x-w/2+9,b-h+12,9,9);g.fillRect(x+w/2-18,b-h+12,9,9);
+}
+function sea(g,y1,y2,t){const gr=g.createLinearGradient(0,y1,0,y2);gr.addColorStop(0,'#5fb3dc');gr.addColorStop(1,'#2f7fb0');g.fillStyle=gr;g.fillRect(0,y1,W,y2-y1);g.fillStyle='rgba(255,255,255,.4)';for(let i=0;i<26;i++){const x=(hash(i)*W+t*9*(i%3+1))%W;g.fillRect(x,y1+6+hash(i+4)*(y2-y1-10),14,1.5)}}
+function ship(g,x,b){g.fillStyle='#6b4423';g.beginPath();g.moveTo(x-44,b-16);g.lineTo(x+48,b-16);g.lineTo(x+32,b);g.lineTo(x-32,b);g.closePath();g.fill();g.fillStyle='#5a3a1a';g.fillRect(x-1,b-76,3,60);g.fillStyle='#f4efe0';tri(g,x+3,b-74,x+32,b-26,x+3,b-26);tri(g,x-3,b-64,x-28,b-26,x-3,b-26);g.fillStyle='#c0463a';tri(g,x+2,b-76,x+14,b-72,x+2,b-68)}
+function tower(g,x,b){g.fillStyle='#6a5a8a';g.fillRect(x-24,b-180,48,180);g.fillStyle='#4a3a6a';tri(g,x-32,b-180,x,b-246,x+32,b-180);g.fillStyle='rgba(255,220,140,.85)';for(let i=0;i<5;i++)g.fillRect(x-4,b-160+i*30,8,13);g.fillStyle='#d8b0ff';g.shadowColor='#c080ff';g.shadowBlur=12;circ(g,x,b-252,6);g.shadowBlur=0}
+function pagodaTower(g,x,b){for(let i=0;i<4;i++){const w=80-i*15,y=b-i*36;g.fillStyle='#8a5a3a';g.fillRect(x-w/2+10,y-32,w-20,32);g.fillStyle='#3a2a2a';g.beginPath();g.moveTo(x-w/2-10,y-30);g.quadraticCurveTo(x,y-38,x+w/2+10,y-30);g.lineTo(x+w/2-6,y-44);g.lineTo(x-w/2+6,y-44);g.closePath();g.fill()}}
+function palace(g,x,b){g.fillStyle='#d49a5c';g.fillRect(x-90,b-64,180,64);g.beginPath();g.arc(x,b-64,46,Math.PI,0);g.fill();g.fillRect(x-104,b-116,18,116);g.fillRect(x+86,b-116,18,116);g.beginPath();g.arc(x-95,b-116,10,Math.PI,0);g.fill();g.beginPath();g.arc(x+95,b-116,10,Math.PI,0);g.fill();g.fillStyle='#f2c23a';circ(g,x,b-114,4)}
+const TOWNSTYLE={prt:{walls:['#ece4d0','#dcd2bc','#f2ead9'],roofs:['#c0463a','#3f67b0','#b8563a'],kind:'tri'},izl:{walls:['#f4f1ea','#e8e4da'],roofs:['#3f7fc0','#2f6aa8'],kind:'tri'},
+ gef:{walls:['#d6cde0','#c9c0d4'],roofs:['#5a3f8a','#6a4a9a'],kind:'tri'},pay:{walls:['#c9a476','#b8925f'],roofs:['#3a2a2a','#4a3030'],kind:'pagoda'},
+ moc:{walls:['#e6c48e','#dcb67c'],roofs:['#c9985a','#d8a868'],kind:'dome'},alb:{walls:['#e0cba8','#d4bc94'],roofs:['#8a4a2a','#a0582e'],kind:'tri'}};
+function townDeco(kind){return(g,t,th)=>{
+ if(kind==='gef'){g.fillStyle='rgba(255,226,200,.7)';circ(g,210,130,34)}else skyDeco(g,t);
+ if(kind==='izl'||kind==='alb'){sea(g,240,330,t);if(kind==='alb')each(cam*.15,640,(x)=>ship(g,x+220,300));else{g.fillStyle='#f4efe0';const lx=820-cam*.1;g.fillRect(lx-9,170,18,90);g.fillStyle='#c0463a';g.fillRect(lx-9,190,18,10);g.fillRect(lx-9,220,18,10);tri(g,lx-12,170,lx,152,lx+12,170);g.fillStyle='rgba(255,240,160,.9)';circ(g,lx,164,4)}}
+ else{
+  if(kind==='prt')each(cam*.15,1500,(x)=>{g.save();g.translate(x+560,268);g.scale(1.5,1.5);castle(g,0,0,'#b8cfe2');g.restore()});
+  if(kind==='gef')each(cam*.15,1400,(x)=>tower(g,x+520,300));
+  if(kind==='pay')each(cam*.15,1200,(x)=>pagodaTower(g,x+460,300));
+  if(kind==='moc'){each(cam*.1,620,(x,k)=>{const hh=70+hash(k+1)*50,px=x+hash(k)*260;g.fillStyle='#d99a5b';tri(g,px-hh,280,px,280-hh,px+hh,280)});each(cam*.15,1300,(x)=>palace(g,x+520,300))}
+  ridge(g,cam*.2,th.far,306,12,.004,.013,13);
+ }
+ const st=TOWNSTYLE[kind];g.fillStyle=th.mid;g.fillRect(0,352,W,50);
+ each(cam*.5,170,(x,k)=>{const w=70+hash(k)*40,h=46+hash(k+1)*40;house(g,x,356,w,h,st.walls[Math.abs(k)%st.walls.length],st.roofs[Math.abs(k)%st.roofs.length],st.kind)});
+ if(kind==='pay')each(cam*.5,170,(x)=>{g.fillStyle='#e0452a';ell(g,x+85,330,5,7);g.fillStyle='rgba(255,200,120,.35)';circ(g,x+85,330,12)});
+}}
 const DECO={
  field(g,t,th){
   const sg=g.createRadialGradient(830,70,6,830,70,90);sg.addColorStop(0,'rgba(255,250,210,1)');sg.addColorStop(.25,'rgba(255,244,190,.8)');sg.addColorStop(1,'rgba(255,244,190,0)');g.fillStyle=sg;g.fillRect(700,0,260,180);
@@ -952,6 +1044,7 @@ const DECO={
   ridge(g,cam*.45,th.mid,362,10,.012,.03,12);
   for(let i=0;i<26;i++){const x=((hash(i)*W*2-cam*.3+Math.sin(t*.7+i)*30)%W+W)%W,y=150+hash(i+5)*210+Math.sin(t*1.3+i)*10;g.fillStyle=`rgba(216,255,138,${.4+.5*Math.abs(Math.sin(t*2+i))})`;circ(g,x,y,1.8)}
  },
+ prontera:townDeco('prt'),izlude:townDeco('izl'),geffen:townDeco('gef'),payon:townDeco('pay'),morroc:townDeco('moc'),alberta:townDeco('alb'),
 };
 function drawWorld(g){
  const th=THEMES[MAP().theme];
@@ -1019,6 +1112,30 @@ function drawHero(g){
  if(h.dead)txt(g,`${Math.ceil(h.deadT)} 秒後復活`,sx,h.y-40,`700 12px ${TCF}`,'#ffd0d0','#3a0f0f',3);
 }
 let LOOKS={};
+const NPCL={kafra:{skin:'#ffdcb8',hair:'#8a4a2a',cloth:'#22306e',cloth2:'#ffffff',pants:'#22306e',boots:'#2a2a2a',head:'band',cape:'#ffffff'},
+ shop:{skin:'#ffdcb8',hair:'#5a3a1a',cloth:'#7a5a3a',cloth2:'#e8d9a8',pants:'#4a3a2a',boots:'#3a2a1a',head:'goggle'},
+ equip:{skin:'#f0c8a0',hair:'#2a2a2a',cloth:'#5a6378',cloth2:'#c9d3e6',pants:'#3a3f4e',boots:'#2a2a2a',head:'band',cape:'#3a4a7a',weapon:'sword'},
+ refine:{skin:'#f0c8a0',hair:'#e0e0e0',cloth:'#6b4a2a',cloth2:'#3a2a1a',pants:'#4a3420',boots:'#2a1a10',head:'plain',weapon:'mace'}};
+const npcLook=n=>n.k==='job'?LOOKS[n.cls]:NPCL[n.k];
+const npcName=n=>n.k==='job'?`${CLASSES[n.cls].n}公會導師`:{kafra:'卡普拉職員',shop:'道具商人',equip:'裝備商人',refine:'精煉師'}[n.k];
+function bubble(g,x,y,s){g.font=`700 11px ${TCF}`;const w=g.measureText(s).width;g.fillStyle='rgba(255,255,255,.95)';rr(g,x-w/2-7,y-14,w+14,19,5);g.fill();g.strokeStyle='#4a5a8a';g.lineWidth=1;g.stroke();txt(g,s,x,y,`700 11px ${TCF}`,'#1b2440')}
+function drawPortal(g,p){
+ const x=p[0]-cam;if(x<-80||x>W+80)return;const y=GROUND-2;
+ g.save();g.translate(x,y);
+ const gr=g.createRadialGradient(0,-26,2,0,-26,46);gr.addColorStop(0,'rgba(190,245,255,.55)');gr.addColorStop(1,'rgba(120,200,255,0)');g.fillStyle=gr;g.fillRect(-50,-76,100,76);
+ for(let i=0;i<3;i++){g.strokeStyle=i?`rgba(140,220,255,${.8-i*.2})`:'rgba(255,255,255,.9)';g.lineWidth=3-i*.7;g.beginPath();g.ellipse(0,-5-i*3,28-i*7,9-i*2,0,gt*3+i*2,gt*3+i*2+4.6);g.stroke()}
+ for(let i=0;i<7;i++){const a=gt*2+i;g.fillStyle='rgba(225,250,255,.85)';circ(g,Math.cos(a)*(10+i*2),-8-((gt*45+i*11)%56),1.6)}
+ g.restore();
+ const to=MAPS[p[1]];txt(g,to.n,x,GROUND-62,`700 12px ${TCF}`,to.town?'#fff4a8':'#d8f6ff','#1b2440',3);
+ if(nearPortal()===p&&(!S.set.auto||MAP().town))bubble(g,x,GROUND-80,'↑ 進入');
+}
+function drawNpc(g,n){
+ const x=n.x-cam;if(x<-60||x>W+60)return;
+ g.save();g.translate(x,GROUND);g.fillStyle='rgba(0,0,0,.2)';ell(g,0,0,13,3.5);if(hero.x<n.x)g.scale(-1,1);
+ drawHuman(g,npcLook(n),{t:gt+n.x*.01,walk:null,atk:null});g.restore();
+ txt(g,npcName(n),x,GROUND+20,`700 11px ${TCF}`,'#b8f0ff','#1b2440',3);
+ if(nearNpc()===n)bubble(g,x,GROUND-78,'↑ 對話');
+}
 function drawLoot(g,l){
  const x=l.x-cam,y=l.y+(l.fly?0:Math.sin(l.t*6)*1.5);
  g.save();g.translate(x,y);
@@ -1049,15 +1166,19 @@ function drawHUD(g){
  const m=MAP();g.font=`700 13px ${TCF}`;const w1=g.measureText(m.n).width;g.font=`500 11px ${PXF}`;const w2=g.measureText(m.code).width;
  g.fillStyle='rgba(12,18,36,.72)';rr(g,10,10,w1+w2+30,26,6);g.fill();
  txt(g,m.n,20,28,`700 13px ${TCF}`,'#ffffff',null,0,'left');txt(g,m.code,26+w1,28,`500 11px ${PXF}`,'#9fb3e0',null,0,'left');
- const boss=mobs.find(x=>x.boss&&!x.dead);
+ const mode=m.town?(S.set.auto?'城鎮中 · 自動戰鬥暫停':'城鎮 · 手動操作'):(S.set.auto?'自動戰鬥 ON · 按方向鍵接手':'手動操作 · 按 A 恢復自動');
+ g.font=`700 11px ${TCF}`;const w4=g.measureText(mode).width;g.fillStyle=S.set.auto&&!m.town?'rgba(30,110,60,.8)':'rgba(12,18,36,.72)';rr(g,10,40,w4+20,22,6);g.fill();txt(g,mode,20,55,`700 11px ${TCF}`,'#ffffff',null,0,'left');
+ if(!m.town){const boss=mobs.find(x=>x.boss&&!x.dead);
  const s=boss?`MVP ${boss.d.n} 出現中！`:`MVP ${MOBS[m.mvp].n} ${Math.floor(mvpT/60)}:${String(Math.floor(mvpT%60)).padStart(2,'0')}`;
- g.font=`700 12px ${TCF}`;const w3=g.measureText(s).width;g.fillStyle=boss?'rgba(120,20,20,.8)':'rgba(12,18,36,.72)';rr(g,W-w3-30,10,w3+20,26,6);g.fill();txt(g,s,W-20,28,`700 12px ${TCF}`,boss?'#ffd36a':'#e6ebf7',null,0,'right');
+ g.font=`700 12px ${TCF}`;const w3=g.measureText(s).width;g.fillStyle=boss?'rgba(120,20,20,.8)':'rgba(12,18,36,.72)';rr(g,W-w3-30,10,w3+20,26,6);g.fill();txt(g,s,W-20,28,`700 12px ${TCF}`,boss?'#ffd36a':'#e6ebf7',null,0,'right')}
  if(banner){const a=Math.min(1,banner.life/.4,(banner.max-banner.life)/.25);g.globalAlpha=a;g.fillStyle='rgba(10,12,24,.55)';g.fillRect(0,120,W,74);
   txt(g,banner.t,W/2,160,`900 30px ${TCF}`,banner.c,'#1a0f0f',5);txt(g,banner.sub,W/2,184,`700 14px ${TCF}`,'#ffffff','#1a0f0f',3);g.globalAlpha=1}
 }
 function render(){
  const g=ctx;g.setTransform(DPR,0,0,DPR,0,0);
  drawWorld(g);
+ for(const p of MAP().portals||[])drawPortal(g,p);
+ for(const n of MAP().npcs||[])drawNpc(g,n);
  for(const l of loots)drawLoot(g,l);
  for(const m of mobs)drawMob(g,m);
  drawHero(g);
@@ -1078,7 +1199,7 @@ const chatEl=$('#chat');
 function log(msg,cls){const p=document.createElement('p');p.textContent=msg;if(cls)p.className=cls;const stick=chatEl.scrollTop+chatEl.clientHeight>=chatEl.scrollHeight-8;chatEl.appendChild(p);while(chatEl.childNodes.length>80)chatEl.removeChild(chatEl.firstChild);if(stick)chatEl.scrollTop=chatEl.scrollHeight}
 const TABS=[['stat','能力值'],['skill','技能'],['item','道具'],['equip','裝備'],['shop','商店'],['map','地圖'],['card','卡片冊'],['set','設定']];
 let curTab='stat';
-function renderTabs(){$('#tabs').innerHTML=TABS.map(([k,n])=>`<button class="tab" role="tab" id="tab-${k}" aria-selected="${k===curTab}" data-tab="${k}">${n}${k==='stat'&&S.pts>=statCost(2)&&!S.set.autoStat?'<span class="dot" aria-label="有可用點數"></span>':''}${k==='skill'&&S.cls==='novice'&&S.JL>=10?'<span class="dot" aria-label="可以轉職"></span>':''}</button>`).join('')}
+function renderTabs(){$('#tabs').innerHTML=TABS.map(([k,n])=>`<button class="tab" role="tab" id="tab-${k}" aria-selected="${k===curTab}" data-tab="${k}">${n}${k==='stat'&&S.pts>=statCost(2)&&!S.set.autoStat?'<span class="dot" aria-label="有可用點數"></span>':''}${k==='skill'&&((S.cls==='novice'&&S.JL>=10)||(S.skp>0&&!S.set.autoSkill))?'<span class="dot" aria-label="有事項待處理"></span>':''}</button>`).join('')}
 const pct=(a,b)=>b?Math.min(100,a/b*100):0;
 function faceDraw(){const c=$('#bw-face'),g=c.getContext('2d');g.setTransform(1,0,0,1,0,0);g.clearRect(0,0,112,124);const sp=SPR['job_'+S.cls];if(sp){drawSprite(g,sp,56,118,1,0,Math.min(3,100/sp.fw,112/sp.fh));return}g.save();g.translate(56,150);g.scale(2.2,2.2);drawHuman(g,LOOKS[S.cls],{t:0,walk:null,atk:null});g.restore()}
 function updateBasic(){
@@ -1102,16 +1223,17 @@ const TAB={
   return`<h3>能力值</h3><div class="statgrid"><table class="tbl"><thead><tr><th>屬性</th><th>數值</th><th></th><th class="r">需求</th></tr></thead><tbody>${rows}</tbody></table>
   <table class="tbl"><tbody>${der.map(([a,b])=>`<tr><th scope="row">${a}</th><td class="px r">${b}</td></tr>`).join('')}</tbody></table></div>
   <div class="pts"><span>剩餘點數 <b>${S.pts}</b></span><label class="chk"><input type="checkbox" id="autoStat" data-set="autoStat" ${S.set.autoStat?'checked':''}> 自動配點（依 ${CL().n} 推薦配點）</label></div>
-  <p class="hint">提升 1 點所需點數 = (目前值 − 1) ÷ 10 + 2。每升一級獲得 (Lv ÷ 5) + 3 點；卡片與被動技能加成以綠字顯示。</p>`;
+  <p class="hint">取消勾選「自動配點」就能自己按 + 加點。提升 1 點所需點數 = (目前值 − 1) ÷ 10 + 2。每升一級獲得 (Lv ÷ 5) + 3 點；卡片與被動技能加成以綠字顯示。</p>`;
  },
  skill(){
   let h='';
   if(S.cls==='novice'){h+=S.JL>=10?`<h3>轉職</h3><p class="hint" style="margin:0 0 8px">Job Lv 10 達成！選擇你的一轉職業（能力點數會重置並依新職業重新分配）。</p>${jobChoices()}`:`<h3>轉職</h3><p class="hint" style="margin:0">初心者 Job Lv 達到 10 即可轉職（目前 Job Lv ${S.JL}）。</p>`}
-  h+=`<h3>${CL().n}技能</h3>`;
-  for(const sk of SKILLS[S.cls]){const l=skLv(sk),lk=!l;
-   h+=`<div class="skill${lk?' locked':''}"><div class="sico" style="background:${sk.c}" aria-hidden="true">${sk.n[0]}</div><div><div class="nm">${sk.n} <span class="px">${lk?'':`Lv ${l}/10`}</span>${sk.passive?'<span class="tag pas">被動</span>':`<span class="tag">SP ${sk.sp(Math.max(1,l))}${sk.cd?` · 冷卻 ${sk.cd}s`:''}</span>`}</div><div class="ds">${lk?`需要 Job Lv ${sk.un}`:sk.d(l)}</div></div>
-   <div>${!sk.passive&&!lk?`<label class="chk"><input type="checkbox" data-set="skill:${sk.id}" ${S.skillOff[sk.id]?'':'checked'}> 自動施放</label>`:''}</div></div>`}
-  return h+`<p class="hint">技能等級隨 Job Lv 自動提升（每 4 級 +1，最高 10 級）。</p>`;
+  h+=`<h3>${CL().n}技能</h3><div class="skp"><span>技能點數 <b>${S.skp}</b></span><label class="chk"><input type="checkbox" data-set="autoSkill" ${S.set.autoSkill?'checked':''}> 自動點技能</label><button class="btn sm" type="button" data-act="skreset">重置技能點</button></div>`;
+  let slot=0;
+  for(const sk of SKILLS[S.cls]){const raw=S.skl[sk.id]||0,l=skLv(sk),lk=S.JL<sk.un,key=sk.passive?'':`<span class="tag">按鍵 ${++slot}</span>`;
+   h+=`<div class="skill${lk||!l?' locked':''}"><div class="sico" style="background:${sk.c}" aria-hidden="true">${sk.n[0]}</div><div><div class="nm">${sk.n} <span class="px">Lv ${raw}/10</span>${sk.passive?'<span class="tag pas">被動</span>':`<span class="tag">SP ${sk.sp(Math.max(1,l))}${sk.cd?` · 冷卻 ${sk.cd}s`:''}</span>`}${key}</div><div class="ds">${lk?`需要 Job Lv ${sk.un}`:sk.d(Math.max(1,l))+(l?'':'（尚未學習）')}</div></div>
+   <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end"><button class="btn sm" type="button" data-act="skill" data-arg="${sk.id}" ${lk||raw>=10||S.skp<1?'disabled':''} aria-label="提升 ${sk.n}">+</button>${!sk.passive&&l?`<label class="chk"><input type="checkbox" data-set="skill:${sk.id}" ${S.skillOff[sk.id]?'':'checked'}> 自動施放</label>`:''}</div></div>`}
+  return h+`<p class="hint">每升 1 級 Job Lv 得到 1 點技能點數。關閉「自動點技能」就能自己按 + 分配；手動操作時用數字鍵 1～3 施放主動技能。</p>`;
  },
  item(){
   const mul=1+P.vit*.02;
@@ -1138,13 +1260,15 @@ const TAB={
  shop(){
   const rows=POTS.map(p=>`<tr><td><span class="dotc" style="--c:${p.c}"></span>${p.n}</td><td class="px">${fmt(p.price)}z</td><td class="r"><button class="btn sm" type="button" data-act="buy" data-arg="${p.id}:10" ${S.zeny<p.price*10?'disabled':''}>買 10</button> <button class="btn sm" type="button" data-act="buy" data-arg="${p.id}:50" ${S.zeny<p.price*50?'disabled':''}>買 50</button></td></tr>`).join('')
    +Object.entries(ORES).map(([k,o])=>`<tr><td><span class="dotc" style="--c:${o.c}"></span>${o.n}</td><td class="px">${fmt(o.price)}z</td><td class="r"><button class="btn sm" type="button" data-act="buy" data-arg="${k}:1" ${S.zeny<o.price?'disabled':''}>買 1</button> <button class="btn sm" type="button" data-act="buy" data-arg="${k}:5" ${S.zeny<o.price*5?'disabled':''}>買 5</button></td></tr>`).join('');
-  return`<h3>道具商人 · 普隆德拉</h3><p class="hint" style="margin:0 0 6px">持有 <b class="px">${fmt(S.zeny)}</b> Zeny</p><table class="tbl"><tbody>${rows}</tbody></table>`;
+  return`<h3>道具商人</h3><p class="hint" style="margin:0 0 6px">持有 <b class="px">${fmt(S.zeny)}</b> Zeny</p><table class="tbl"><tbody>${rows}</tbody></table>`;
  },
  map(){
-  return`<h3>傳送師</h3><div class="setrow" style="margin-top:0"><label class="chk"><input type="checkbox" data-set="autoMap" ${S.set.autoMap?'checked':''}> 依等級自動前往最適合的地圖</label></div><div class="maps">${MAPS.map((m,i)=>{const lk=S.L<m.req,cur=i===S.map;
+  const towns=MAPS.map((m,i)=>[m,i]).filter(([m])=>m.town);
+  return`<h3>城鎮</h3><p class="hint" style="margin:0 0 8px">記錄點：<b>${MAPS[S.savePt].n}</b>。城鎮裡有卡普拉職員、道具商人、裝備商人／精煉師與轉職公會，走到 NPC 旁按 ↑ 對話。</p><div class="maps">${towns.map(([m,i])=>`<div class="mapc${i===S.map?' cur':''}"><span class="code">${m.code}</span><span class="nm">${m.n}</span><span class="mobs">${m.npcs.map(npcName).join('、')}</span><span class="mobs">出口：${m.portals.map(p=>MAPS[p[1]].n).join('、')}</span><div>${i===S.map?'<span class="tag">目前所在</span>':`<button class="btn sm" type="button" data-act="map" data-arg="${i}">傳送</button>`}</div></div>`).join('')}</div>
+  <h3>狩獵場</h3><div class="setrow" style="margin-top:0"><label class="chk"><input type="checkbox" data-set="autoMap" ${S.set.autoMap?'checked':''}> 自動戰鬥時依等級前往最適合的狩獵場</label></div><div class="maps">${MAPS.map((m,i)=>{if(m.town)return'';const lk=S.L<m.req,cur=i===S.map;
    return`<div class="mapc${cur?' cur':''}${lk?' lock':''}"><span class="code">${m.code} · 建議 Lv ${m.req}+</span><span class="nm">${m.n}</span><span class="mobs">${m.mobs.map(k=>`${MOBS[k].n} Lv${MOBS[k].lv}`).join('、')}</span><span class="mobs">MVP：${MOBS[m.mvp].n} Lv${MOBS[m.mvp].lv}</span>
    <div>${cur?'<span class="tag">目前所在</span>':`<button class="btn sm" type="button" data-act="map" data-arg="${i}" ${lk?'disabled':''}>${lk?`需要 Lv ${m.req}`:'傳送'}</button>`}</div></div>`}).join('')}</div>
-  <p class="hint">手動傳送會關閉自動換圖。連續陣亡 3 次時，自動換圖會暫時退回前一張地圖。</p>`;
+  <p class="hint">也可以走到地圖邊緣的傳送點按 ↑ 前往相連的城鎮或狩獵場。手動傳送會關閉自動換圖；連續陣亡 3 次時，自動換圖會暫時退回前一張地圖。</p>`;
  },
  card(){
   const keys=Object.keys(MOBS),got=keys.filter(k=>S.cards[k]).length;
@@ -1183,12 +1307,16 @@ function act(a,arg){
   case'buy':{const[k,n]=arg.split(':'),q=+n,pr=(POTS.find(p=>p.id===k)||ORES[k]).price*q;if(S.zeny>=pr){S.zeny-=pr;S.inv[k]+=q;log(`購買 ${(POTS.find(p=>p.id===k)||ORES[k]).n} × ${q}（−${fmt(pr)} Zeny）`,'sys')}break}
   case'refine':refine(arg);break;
   case'upgrade':{const e=S[arg],nt=e.t+1;if(nt<7&&S.zeny>=TPRICE[nt]&&S.L>=TREQ[nt]){S.zeny-=TPRICE[nt];S[arg]={t:nt,r:0};recalc();log(`購買了 ${arg==='wpn'?WNAMES[CL().wk][nt]:ANAMES[nt]}`,'sys')}break}
-  case'map':S.set.autoMap=false;setMap(+arg);break;
+  case'map':S.set.autoMap=false;closeModal();setMap(+arg);break;
+  case'savept':S.savePt=S.map;log(`記錄點已儲存在 ${MAP().n}`,'sys');break;
+  case'skill':if(addSkill(arg))recalc();break;
+  case'skreset':{let n=0;for(const k in S.skl)n+=S.skl[k];S.skl={};S.skp+=n;recalc();autoSkill();log('技能點數已重置','sys');break}
   case'save':save();break;
   case'sprclear':clearImported();break;
   case'reset':if(resetArm&&performance.now()-resetArm<4000){try{localStorage.removeItem(SAVE_KEY)}catch(e){}S=defaultState();boot(true);log('已重新開始','sys');resetArm=0}else{resetArm=performance.now();const b=$('#resetBtn');if(b){b.textContent='再按一次確認重新開始';b.classList.add('pri')}return}break;
  }
  renderTab(true);updateBasic();
+ if(!$('#modal').hidden&&modalRender){const mb=$('#modal-b');mb.innerHTML=modalRender();paintPortraits(mb)}
 }
 body.addEventListener('click',e=>{const b=e.target.closest('[data-act]');if(!b||b.disabled)return;act(b.dataset.act,b.dataset.arg)});
 body.addEventListener('input',e=>{const el=e.target,k=el.dataset.set;if(!k)return;
@@ -1212,15 +1340,61 @@ function refine(slot){
 function changeJob(k){
  if(S.cls!=='novice'||S.JL<10||!CLASSES[k])return;
  let spent=0;for(const s of STATS){for(let v=1;v<S.st[s];v++)spent+=statCost(v);S.st[s]=1}
- S.pts+=spent;S.cls=k;S.JL=1;S.jexp=0;S.skillOff={};recalc();autoStat();hero.hp=P.maxHp;hero.sp=P.maxSp;hero.cds={};
+ S.pts+=spent;S.cls=k;S.JL=1;S.jexp=0;S.skillOff={};S.skl={};S.skp=1;recalc();autoStat();autoSkill();hero.hp=P.maxHp;hero.sp=P.maxSp;hero.cds={};
  lvFx('Job Change!');showBanner('轉職成功！',`${S.name} 成為了${CLASSES[k].n}`,'#ffe14a');log(`恭喜轉職成為 ${CLASSES[k].n}！能力點數已重新分配。`,'lv');
  faceDraw();save();
 }
-function openModal(title,html){$('#modal-h').textContent=title;const b=$('#modal-b');b.innerHTML=html;paintPortraits(b);$('#modal').hidden=false;b.querySelector('button')?.focus()}
-function closeModal(){$('#modal').hidden=true}
+function openModal(title,html){modalRender=null;$('#modal-h').textContent=title;const b=$('#modal-b');b.innerHTML=html;paintPortraits(b);$('#modal').hidden=false;b.querySelector('button')?.focus()}
+function closeModal(){$('#modal').hidden=true;modalRender=null;cv.focus({preventScroll:true})}
+let modalRender=null;
+function openNpc(n){
+ let intro='',body=()=>'';
+ switch(n.k){
+  case'kafra':intro='歡迎使用卡普拉服務！需要什麼協助嗎？';
+   body=()=>`<p class="hint" style="margin:0 0 8px">目前記錄點：<b>${MAPS[S.savePt].n}</b>（死亡後會在記錄點復活）</p><div class="setrow"><button class="btn pri" type="button" data-act="savept" ${S.savePt===S.map?'disabled':''}>${S.savePt===S.map?'記錄點已在這裡':`把記錄點存在 ${MAP().n}`}</button></div>
+   <h3>傳送服務</h3><div class="setrow">${MAPS.map((m,i)=>i===S.map?'':`<button class="btn sm" type="button" data-act="map" data-arg="${i}" ${!m.town&&S.L<m.req?'disabled':''}>${m.n}${m.town?'':` Lv${m.req}+`}</button>`).join('')}</div>`;break;
+  case'shop':intro='要買點什麼嗎？藥水和精煉礦石都在這裡。';body=()=>TAB.shop();break;
+  case'equip':intro='需要更好的武器和鎧甲嗎？';body=()=>TAB.equip();break;
+  case'refine':intro='把裝備交給我，我幫你精煉。+4 以上可就不保證了！';body=()=>TAB.equip();break;
+  case'job':{const c=CLASSES[n.cls];body=()=>{
+   if(S.cls===n.cls)return`<p>「繼續努力吧，${c.n}！」</p>`;
+   if(S.cls!=='novice')return`<p>「你已經是${CL().n}了。這裡是${c.n}公會。」</p>`;
+   if(S.JL<10)return`<p>「想成為${c.n}？先把初心者 Job Lv 練到 10 再來找我吧。」（目前 Job Lv ${S.JL}）</p>`;
+   return`<p>「${c.desc}。你確定要成為${c.n}嗎？」</p><p class="hint">轉職後能力點數與技能點數會重置，Job Lv 從 1 開始。</p><div class="setrow"><button class="btn pri" type="button" data-act="job" data-arg="${n.cls}">成為${c.n}</button></div>`}}
+ }
+ openModal(npcName(n),'');
+ modalRender=()=>`${intro?`<p>「${intro}」</p>`:''}${body()}<p class="hint" style="margin-top:10px"><button class="btn" type="button" data-close>離開</button></p>`;
+ const b=$('#modal-b');b.innerHTML=modalRender();b.querySelector('button:not([disabled])')?.focus();
+}
 function openJobModal(){if(S.cls!=='novice')return;openModal('轉職 · Job Lv 10 達成',`<p>選擇你的一轉職業。轉職後能力點數會重置並依新職業重新分配，Job Lv 從 1 開始。</p>${jobChoices()}<p class="hint" style="margin-top:10px"><button class="btn" type="button" data-close>稍後再說</button> 之後也可以在「技能」分頁轉職。</p>`)}
 $('#modal').addEventListener('click',e=>{if(e.target.id==='modal'||e.target.closest('[data-close]')){closeModal();return}const b=e.target.closest('[data-act]');if(b){act(b.dataset.act,b.dataset.arg)}});
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#modal').hidden)closeModal()});
+function syncAuto(){const b=$('#autoBtn');b.setAttribute('aria-pressed',String(!!S.set.auto));b.textContent=S.set.auto?'自動戰鬥 ON':'自動戰鬥 OFF'}
+function setAuto(v){S.set.auto=v;hero.target=null;hero.sit=false;syncAuto();log(v?'恢復自動戰鬥':'切換為手動操作（按 A 恢復自動戰鬥）','sys')}
+function goManual(){if(S.set.auto)setAuto(false)}
+$('#autoBtn').addEventListener('click',()=>setAuto(!S.set.auto));
+cv.addEventListener('pointerdown',()=>cv.focus({preventScroll:true}));
+document.addEventListener('keydown',e=>{
+ if(!$('#modal').hidden){if(e.key==='Escape')closeModal();return}
+ const tg=e.target;if(tg&&(/INPUT|TEXTAREA|SELECT/.test(tg.tagName)||tg.isContentEditable))return;
+ if(e.metaKey||(e.ctrlKey&&e.key!=='Control'))return;
+ const onBtn=tg&&tg.tagName==='BUTTON';let used=true;
+ switch(e.key){
+  case'ArrowLeft':K.left=true;goManual();break;
+  case'ArrowRight':K.right=true;goManual();break;
+  case'ArrowUp':if(!e.repeat)K.upP=true;goManual();break;
+  case'ArrowDown':K.down=true;if(!e.repeat)K.downP=true;goManual();break;
+  case' ':case'Alt':if(onBtn&&e.key===' '){used=false;break}if(!e.repeat)K.jumpP=true;goManual();break;
+  case'z':case'Z':case'x':case'X':case'Control':K.atk=true;goManual();break;
+  case'1':case'2':case'3':K.skillP=+e.key-1;goManual();break;
+  case's':case'S':case'Insert':if(!e.repeat)K.sitP=true;goManual();break;
+  case'Enter':if(onBtn){used=false;break}K.enterP=true;break;
+  case'a':case'A':if(!e.repeat)setAuto(!S.set.auto);break;
+  default:used=false;
+ }
+ if(used)e.preventDefault();
+});
+document.addEventListener('keyup',e=>{switch(e.key){case'ArrowLeft':K.left=false;break;case'ArrowRight':K.right=false;break;case'ArrowDown':K.down=false;break;case'z':case'Z':case'x':case'X':case'Control':K.atk=false;break}});
+window.addEventListener('blur',()=>{K.left=K.right=K.down=K.atk=false});
 
 /* ================= 離線收益 ================= */
 function offlineGain(sec,show){
@@ -1247,12 +1421,13 @@ function frame(now){
 function boot(fresh){
  for(const k in CLASSES)LOOKS[k]=heroLook(k);
  jobPrompted=S.cls!=='novice';
- recalc();autoStat();hero.hp=P.maxHp;hero.sp=P.maxSp;hero.dead=false;hero.cds={};
+ if((S.v||1)<2){S.skl={};S.skp=Math.max(0,S.JL-1);S.v=2}
+ recalc();autoStat();autoSkill();hero.hp=P.maxHp;hero.sp=P.maxSp;hero.dead=false;hero.cds={};
  setMap(S.map||0,true);
  chatEl.innerHTML='';
  log(`歡迎來到 ${MAP().n}！角色會自動戰鬥與撿取道具。`,'sys');
- log('在右側選單調整能力值、技能、裝備與地圖。','sys');
- syncSpeed();faceDraw();updateBasic();renderTab(true);
+ log('在右側選單調整能力值、技能、裝備與地圖；按方向鍵可以自己操作，按 A 切回自動。','sys');
+ syncSpeed();syncAuto();faceDraw();updateBasic();renderTab(true);
  if(!fresh&&S.cls==='novice'&&S.JL>=10)timers.push({t:1,fn:openJobModal});
 }
 let spritesLoaded=false;
