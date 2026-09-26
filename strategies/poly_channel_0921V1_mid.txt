@@ -36,6 +36,10 @@ filter_0000_0400  = input.bool(false, title="🚫 限制時段 0：00:00-04:00 �
 filter_0400_0430  = input.bool(true, title="🚫 限制時段 1：04:00-04:30 不進場", group="時段過濾")
 filter_0430_0500  = input.bool(true, title="🚫 限制時段 2：04:30-05:00 不進場", group="時段過濾")
 
+// --- 斜率過濾 ---
+enable_neg_slope  = input.bool(false, title="📉 中軌斜率為負才允許進場", group="斜率過濾")
+slope_len         = input.int(1, title="斜率回看 K 棒數 (中軌 - N 根前中軌)", minval=1, group="斜率過濾")
+
 // ==========================================
 // 4. 時段判定 (以 Asia/Taipei 為準)
 // ==========================================
@@ -145,7 +149,10 @@ else
 // 9. 進出場信號與策略執行
 // ==========================================
 // 收盤確認價格在中軌以上進場
-long_entry = close > midline and barstate.isconfirmed
+// 開關開啟時，中軌斜率需為負 (本根中軌低於 N 根前中軌) 才允許進場
+midline_slope = midline - midline[slope_len]
+slope_ok      = not enable_neg_slope or midline_slope < 0
+long_entry    = close > midline and slope_ok and barstate.isconfirmed
 
 // 持倉期間是否曾經收盤在上軌以上 (空手時重置)
 var bool was_above_upper = false
