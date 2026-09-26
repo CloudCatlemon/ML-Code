@@ -124,6 +124,10 @@ label.chk{display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-siz
 .modal .mb{padding:14px}
 .modal .mb p{margin:0 0 10px}
 .inline-in{font:inherit;padding:3px 8px;border:1px solid #9fb0d4;border-radius:4px;width:160px;max-width:100%}
+.chips{display:flex;flex-wrap:wrap;gap:4px}
+.chip{font-size:11px;padding:1px 7px;border-radius:9px;background:#eceff5;color:#8a93a8;border:1px solid #d5dbe8}
+.chip.on{background:var(--accent-soft);color:var(--accent-2);border-color:#f0a9c3}
+.chip code,.tabbody code{font-family:"Pixelify Sans",monospace;font-size:11px}
 .foot{font-size:11px;color:#8193c2;text-align:center}
 @media (prefers-reduced-motion:reduce){.bar>i{transition:none}}
 </style>
@@ -180,7 +184,7 @@ label.chk{display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-siz
       <div class="tabbody" id="tabbody" role="tabpanel"></div>
     </section>
   </div>
-  <p class="foot">同人致敬作品，怪物與地名取材自 RO 仙境傳說。進度存在本機瀏覽器；離開期間依掛機效率的一半結算離線收益（最多 8 小時）。</p>
+  <p class="foot">同人致敬作品，怪物與地名取材自 RO 仙境傳說；可在「設定 → 素材」匯入自己的 RO 素材取代內建圖。進度存在本機瀏覽器；離開期間依掛機效率的一半結算離線收益（最多 8 小時）。</p>
 </div>
 
 <div class="modal" id="modal" hidden>
@@ -190,6 +194,7 @@ label.chk{display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-siz
   </section>
 </div>
 
+<script src="assets/sprites.js" onerror="void 0"></script>
 <script>
 (function(){
 'use strict';
@@ -416,7 +421,7 @@ function spawnMob(key){
  const m={id:++mobId,key,d,lv:d.lv,maxHp:st.hp,hp:st.hp,atk:st.atk,def:st.def,mdef:st.mdef,hit:st.hit,flee:st.flee,exp:st.exp,jexp:st.jexp,
   spd:d.spd||55,x,y:s.y,surf:s.i,face:Math.random()<.5?-1:1,w:dim[0]*sz,h:dim[1]*sz,sz,fly:!!dim[2],aggro:false,atkCd:1,hurt:0,dead:false,deathT:0,
   wT:rand(0,2),wDir:0,walk:rand(0,6),phase:rand(0,6),poison:null,boss:!!d.mvp,atkAnim:9,moving:false,stolen:false};
- mobs.push(m);return m;
+ applySprDims(m);mobs.push(m);return m;
 }
 const mobCY=m=>m.y-m.h/2-(m.fly?28:0);
 function mobUpdate(m,dt){
@@ -665,6 +670,45 @@ function each(off,sp,fn){const k0=Math.floor(off/sp)-1,k1=Math.floor((off+W)/sp)
 function txt(g,s,x,y,font,fill,stroke,lw,align){g.font=font;g.textAlign=align||'center';g.textBaseline='alphabetic';if(stroke){g.lineWidth=lw||3;g.strokeStyle=stroke;g.lineJoin='round';g.strokeText(s,x,y)}g.fillStyle=fill;g.fillText(s,x,y)}
 const PXF='"Pixelify Sans","Noto Sans TC",monospace',TCF='"Noto Sans TC",system-ui,sans-serif';
 
+/* ---------- 外部素材（玩家自備的 PNG） ---------- */
+const SPR={};
+function assetKeys(){return Object.keys(MOBS).concat(Object.keys(CLASSES).map(k=>'job_'+k),Object.keys(THEMES).map(k=>'bg_'+k))}
+function validKey(k){return assetKeys().includes(k)}
+function assetLabel(k){if(MOBS[k])return MOBS[k].n;if(k.startsWith('job_'))return CLASSES[k.slice(4)].n;return MAPS.find(m=>m.theme===k.slice(3)).n+'背景'}
+function applySprDims(m){const sp=SPR[m.key];if(!sp)return;m.w=sp.fw*.7;m.h=sp.fh*.9}
+function setSprite(key,src,meta,source){
+ const img=new Image();
+ img.onload=()=>{if(source==='folder'&&SPR[key]&&SPR[key].src==='import')return;
+  const frames=Math.max(1,(meta.frames|0)||1);SPR[key]={img,frames,fps:meta.fps,right:!!meta.right,fw:Math.floor(img.width/frames),fh:img.height,src:source};
+  for(const m of mobs)if(m.key===key)applySprDims(m);if(key.startsWith('job_')&&S)faceDraw();dirty=true};
+ img.onerror=()=>{if(source==='import')log(`無法讀取素材 ${key}`,'bad')};
+ img.src=src;
+}
+function sprFrame(sp,t,moving){return sp.frames>1?Math.floor(t*(sp.fps||(moving?8:4)))%sp.frames:0}
+function drawSprite(g,sp,x,y,face,fi,sc){
+ sc=sc||1;g.save();g.translate(x,y);if((face>0)!==sp.right)g.scale(-1,1);g.imageSmoothingEnabled=false;
+ g.drawImage(sp.img,fi*sp.fw,0,sp.fw,sp.fh,-sp.fw*sc/2,-sp.fh*sc,sp.fw*sc,sp.fh*sc);g.restore();
+}
+function loadFolderSprites(){
+ const man=window.RO_SPRITES;if(!man||typeof man!=='object')return;
+ for(const k in man){if(!validKey(k))continue;const meta=man[k]||{};setSprite(k,'assets/'+(meta.file||k+'.png'),meta,'folder')}
+}
+function idb(){return new Promise((res,rej)=>{try{const r=indexedDB.open('ro-idle-assets',1);r.onupgradeneeded=()=>r.result.createObjectStore('f');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)}catch(e){rej(e)}})}
+async function idbAll(){const db=await idb();return new Promise((res,rej)=>{const out={},rq=db.transaction('f').objectStore('f').openCursor();rq.onsuccess=()=>{const c=rq.result;if(c){out[c.key]=c.value;c.continue()}else res(out)};rq.onerror=()=>rej(rq.error)})}
+async function idbTx(fn){const db=await idb();return new Promise((res,rej)=>{const tx=db.transaction('f','readwrite');fn(tx.objectStore('f'));tx.oncomplete=res;tx.onerror=()=>rej(tx.error)})}
+async function loadImportedSprites(){try{const all=await idbAll();for(const k in all){if(validKey(k)&&all[k].blob)setSprite(k,URL.createObjectURL(all[k].blob),all[k],'import')}}catch(e){}}
+async function importFiles(files){
+ let ok=0;const bad=[];
+ for(const f of files){const m=f.name.toLowerCase().match(/^([a-z0-9_]+?)(?:@(\d+)(r)?)?\.(png|gif|webp)$/);
+  if(!m||!validKey(m[1])){bad.push(f.name);continue}
+  const meta={frames:+m[2]||1,right:!!m[3]};
+  try{await idbTx(st=>st.put({blob:f,...meta},m[1]))}catch(e){}
+  setSprite(m[1],URL.createObjectURL(f),meta,'import');ok++}
+ log(`匯入 ${ok} 個素材`+(bad.length?`；檔名無法對應：${bad.slice(0,5).join('、')}${bad.length>5?' 等':''}`:''),bad.length?'bad':'sys');
+ setTimeout(()=>{dirty=true;renderTab(true)},300);
+}
+async function clearImported(){try{await idbTx(st=>st.clear())}catch(e){}for(const k in SPR)if(SPR[k].src==='import')delete SPR[k];loadFolderSprites();faceDraw();log('已清除匯入的素材','sys')}
+
 /* ---------- 人形 ---------- */
 function heroLook(cls){const c=CLASSES[cls];return{skin:'#ffdcb8',hair:c.hair,cloth:c.outfit,cloth2:c.trim,pants:'#3d3a4a',boots:'#5a3a22',weapon:c.wk,head:c.head,cape:c.cape,ranged:!!c.ranged||c.wk==='staff'}}
 function leg(g,x,y,rot,o){g.save();g.translate(x,y);g.rotate(rot);g.fillStyle=o.pants||o.cloth2;g.fillRect(-2.6,0,5.2,11);g.fillStyle=o.boots||'#4a3423';g.fillRect(-2.6,10,6.2,5);g.restore()}
@@ -911,8 +955,10 @@ const DECO={
 };
 function drawWorld(g){
  const th=THEMES[MAP().theme];
- const sky=g.createLinearGradient(0,0,0,H);sky.addColorStop(0,th.sky[0]);sky.addColorStop(1,th.sky[1]);g.fillStyle=sky;g.fillRect(0,0,W,H);
- DECO[MAP().theme](g,gt,th);
+ const bg=SPR['bg_'+MAP().theme];
+ if(bg){const w=bg.fw*(H/bg.fh),off=((cam*.3)%w+w)%w;g.imageSmoothingEnabled=true;for(let x=-off;x<W;x+=w)g.drawImage(bg.img,0,0,bg.fw,bg.fh,x,0,w+1,H)}
+ else{const sky=g.createLinearGradient(0,0,0,H);sky.addColorStop(0,th.sky[0]);sky.addColorStop(1,th.sky[1]);g.fillStyle=sky;g.fillRect(0,0,W,H);
+ DECO[MAP().theme](g,gt,th)}
  // 地面
  g.fillStyle=th.gBody;g.fillRect(0,GROUND,W,H-GROUND);
  g.fillStyle=th.gLine;each(cam,44,(x,k)=>{g.fillRect(x+hash(k)*20,GROUND+16+hash(k+1)*16,6+hash(k+2)*12,3)});
@@ -937,9 +983,10 @@ function drawMob(g,m){
  g.save();g.translate(Math.round(sx)+(m.hurt>0?Math.sin(m.hurt*80)*2:0),m.y-fy);
  g.globalAlpha=m.dead?Math.max(0,1-m.deathT/.6):1;
  g.fillStyle='rgba(0,0,0,.18)';ell(g,0,fy,m.w*.45,3.5);
- g.scale(m.sz*m.face,m.sz*(m.dead?1-m.deathT*.6:1));
+ const sp=SPR[m.key];
  if(m.hurt>0)g.filter='brightness(1.8)';
- SHAPES[m.d.sh](g,m.d,m,gt);
+ if(sp){const lunge=m.atkAnim<.35?Math.sin(m.atkAnim/.35*Math.PI)*6*m.face:0;drawSprite(g,sp,lunge,0,m.face,sprFrame(sp,gt+m.phase,m.moving),1)}
+ else{g.scale(m.sz*m.face,m.sz*(m.dead?1-m.deathT*.6:1));SHAPES[m.d.sh](g,m.d,m,gt)}
  g.filter='none';
  g.restore();
  if(m.dead)return;
@@ -958,8 +1005,11 @@ function drawHero(g){
  g.save();g.translate(Math.round(sx),h.y);
  if(h.inv>0&&!h.dead)g.globalAlpha=.5+.5*Math.abs(Math.sin(gt*14));
  g.fillStyle='rgba(0,0,0,.2)';ell(g,0,0,14,3.5);
- if(h.face<0)g.scale(-1,1);
- drawHuman(g,LOOKS[S.cls],{t:gt,walk:!h.grounded?1.1:(h.moving?h.walkPh:null),atk:h.anim<h.animDur?h.anim/h.animDur:null,sit:h.sit,dead:h.dead});
+ const sp=SPR['job_'+S.cls];
+ if(sp){if(h.dead){g.rotate(-Math.PI/2);g.translate(sp.fh*.3,0)}if(h.sit)g.scale(1,.85);
+  const lunge=h.anim<h.animDur?Math.sin(h.anim/h.animDur*Math.PI)*6*h.face:0;drawSprite(g,sp,lunge,0,h.face,h.moving||!h.grounded?sprFrame(sp,gt,true):0,1)}
+ else{if(h.face<0)g.scale(-1,1);
+ drawHuman(g,LOOKS[S.cls],{t:gt,walk:!h.grounded?1.1:(h.moving?h.walkPh:null),atk:h.anim<h.animDur?h.anim/h.animDur:null,sit:h.sit,dead:h.dead})}
  g.restore();
  g.fillStyle='rgba(10,12,24,.8)';g.fillRect(sx-21,h.y+5,42,9);
  g.fillStyle='#48d860';g.fillRect(sx-20,h.y+6,40*Math.max(0,h.hp/P.maxHp),3);
@@ -1030,7 +1080,7 @@ const TABS=[['stat','能力值'],['skill','技能'],['item','道具'],['equip','
 let curTab='stat';
 function renderTabs(){$('#tabs').innerHTML=TABS.map(([k,n])=>`<button class="tab" role="tab" id="tab-${k}" aria-selected="${k===curTab}" data-tab="${k}">${n}${k==='stat'&&S.pts>=statCost(2)&&!S.set.autoStat?'<span class="dot" aria-label="有可用點數"></span>':''}${k==='skill'&&S.cls==='novice'&&S.JL>=10?'<span class="dot" aria-label="可以轉職"></span>':''}</button>`).join('')}
 const pct=(a,b)=>b?Math.min(100,a/b*100):0;
-function faceDraw(){const c=$('#bw-face'),g=c.getContext('2d');g.setTransform(1,0,0,1,0,0);g.clearRect(0,0,112,124);g.save();g.translate(56,150);g.scale(2.2,2.2);drawHuman(g,LOOKS[S.cls],{t:0,walk:null,atk:null});g.restore()}
+function faceDraw(){const c=$('#bw-face'),g=c.getContext('2d');g.setTransform(1,0,0,1,0,0);g.clearRect(0,0,112,124);const sp=SPR['job_'+S.cls];if(sp){drawSprite(g,sp,56,118,1,0,Math.min(3,100/sp.fw,112/sp.fh));return}g.save();g.translate(56,150);g.scale(2.2,2.2);drawHuman(g,LOOKS[S.cls],{t:0,walk:null,atk:null});g.restore()}
 function updateBasic(){
  const m=MAP();$('#bw-map').textContent=m.n;$('#bw-name').textContent=S.name;$('#bw-cls').textContent=`${CL().n} · 死亡 ${S.deaths} 次 · MVP ${S.mvps}`;
  $('#bw-hpb').style.width=pct(hero.hp,P.maxHp)+'%';$('#bw-hp').textContent=`${fmt(Math.max(0,hero.hp))} / ${fmt(P.maxHp)}`;
@@ -1044,7 +1094,7 @@ function updateBasic(){
  $('#bw-pots').textContent=`${S.inv.red}/${S.inv.orange}/${S.inv.yellow}/${S.inv.white}`;$('#bw-blue').textContent=fmt(S.inv.blue);
 }
 function jobChoices(){return`<div class="jobs">${JOBS.map(k=>{const c=CLASSES[k];return`<button class="job" type="button" data-act="job" data-arg="${k}"><canvas width="160" height="176" data-cls="${k}" aria-hidden="true"></canvas><b>${c.n}</b><small>${c.desc}</small></button>`}).join('')}</div>`}
-function paintPortraits(root){root.querySelectorAll('canvas[data-cls]').forEach(cn=>{const g=cn.getContext('2d');g.clearRect(0,0,160,176);const gr=g.createRadialGradient(80,110,10,80,110,80);gr.addColorStop(0,'#ffffff');gr.addColorStop(1,'rgba(220,230,248,0)');g.fillStyle=gr;g.fillRect(0,0,160,176);g.save();g.translate(80,166);g.scale(2.3,2.3);drawHuman(g,heroLook(cn.dataset.cls),{t:0,walk:null,atk:null});g.restore()})}
+function paintPortraits(root){root.querySelectorAll('canvas[data-cls]').forEach(cn=>{const g=cn.getContext('2d');g.clearRect(0,0,160,176);const gr=g.createRadialGradient(80,110,10,80,110,80);gr.addColorStop(0,'#ffffff');gr.addColorStop(1,'rgba(220,230,248,0)');g.fillStyle=gr;g.fillRect(0,0,160,176);const sp=SPR['job_'+cn.dataset.cls];if(sp){drawSprite(g,sp,80,168,1,0,Math.min(3,140/sp.fw,150/sp.fh));return}g.save();g.translate(80,166);g.scale(2.3,2.3);drawHuman(g,heroLook(cn.dataset.cls),{t:0,walk:null,atk:null});g.restore()})}
 const TAB={
  stat(){
   const rows=STATS.map(k=>{const v=S.st[k],c=statCost(v),bn=P[k]-v;return`<tr><th scope="row">${STATN[k]}</th><td class="px">${v}${bn?`<span class="bonus">+${bn}</span>`:''}</td><td><button class="btn sm" type="button" data-act="stat" data-arg="${k}" ${S.pts<c||v>=99?'disabled':''} aria-label="提升 ${STATN[k]}">+</button></td><td class="r px" style="color:var(--muted)">${c}</td></tr>`}).join('');
@@ -1106,6 +1156,10 @@ const TAB={
   return`<h3>角色</h3><div class="setrow"><label for="nameIn">角色名稱</label><input class="inline-in" id="nameIn" maxlength="12" value="${esc(S.name)}" data-set="name"></div>
   <h3>戰鬥</h3><div class="setrow"><label class="chk"><input type="checkbox" data-set="mvp" ${S.set.mvp?'checked':''}> 主動挑戰 MVP（等級差 3 以內）</label></div>
   <div class="setrow"><label class="chk"><input type="checkbox" data-set="autoStat" ${S.set.autoStat?'checked':''}> 自動配點</label><label class="chk"><input type="checkbox" data-set="autoSell" ${S.set.autoSell?'checked':''}> 自動賣雜物</label><label class="chk"><input type="checkbox" data-set="autoMap" ${S.set.autoMap?'checked':''}> 自動換圖</label></div>
+  <h3>素材</h3><p class="hint" style="margin:0 0 6px">匯入你自己從 RO 客戶端取出的 PNG，會取代內建的手繪圖。檔名＝代號，例如 <code>poring.png</code>、<code>job_swordsman.png</code>、<code>bg_field.png</code>；多格動畫橫向排列並在檔名加 <code>@格數</code>（如 <code>poring@4.png</code>），原圖朝右再加 <code>r</code>（如 <code>poring@4r.png</code>）。素材只存在你的瀏覽器。</p>
+  <div class="setrow"><label for="sprIn">選擇圖片</label><input type="file" id="sprIn" accept="image/png,image/gif,image/webp" multiple><button class="btn" type="button" data-act="sprclear">清除匯入素材</button></div>
+  <div class="chips">${assetKeys().map(k=>`<span class="chip${SPR[k]?' on':''}" title="${esc(assetLabel(k))}"><code>${k}</code> ${esc(assetLabel(k))}</span>`).join('')}</div>
+  <p class="hint">已載入 ${assetKeys().filter(k=>SPR[k]).length} / ${assetKeys().length}（粉紅色＝使用你的素材，灰色＝使用內建圖）</p>
   <h3>紀錄</h3><table class="tbl"><tbody><tr><th>遊戲時間</th><td class="r px">${Math.floor(S.played/3600)}h ${Math.floor(S.played%3600/60)}m</td></tr><tr><th>擊殺 / MVP / 死亡</th><td class="r px">${fmt(S.kills)} / ${S.mvps} / ${S.deaths}</td></tr></tbody></table>
   <h3>存檔</h3><div class="setrow"><button class="btn" type="button" data-act="save">立即存檔</button><button class="btn" type="button" data-act="reset" id="resetBtn">重新開始</button></div>
   <p class="hint">重新開始會刪除本機存檔，需要連按兩次確認。</p>`;
@@ -1131,6 +1185,7 @@ function act(a,arg){
   case'upgrade':{const e=S[arg],nt=e.t+1;if(nt<7&&S.zeny>=TPRICE[nt]&&S.L>=TREQ[nt]){S.zeny-=TPRICE[nt];S[arg]={t:nt,r:0};recalc();log(`購買了 ${arg==='wpn'?WNAMES[CL().wk][nt]:ANAMES[nt]}`,'sys')}break}
   case'map':S.set.autoMap=false;setMap(+arg);break;
   case'save':save();break;
+  case'sprclear':clearImported();break;
   case'reset':if(resetArm&&performance.now()-resetArm<4000){try{localStorage.removeItem(SAVE_KEY)}catch(e){}S=defaultState();boot(true);log('已重新開始','sys');resetArm=0}else{resetArm=performance.now();const b=$('#resetBtn');if(b){b.textContent='再按一次確認重新開始';b.classList.add('pri')}return}break;
  }
  renderTab(true);updateBasic();
@@ -1139,7 +1194,7 @@ body.addEventListener('click',e=>{const b=e.target.closest('[data-act]');if(!b||
 body.addEventListener('input',e=>{const el=e.target,k=el.dataset.set;if(!k)return;
  if(k==='potHp'||k==='potSp'){S.set[k]=+el.value;const v=document.getElementById(k+'V');if(v)v.textContent=el.value+'%'}
  else if(k==='name'){S.name=el.value.trim().slice(0,12)||'無名冒險者';updateBasic()}});
-body.addEventListener('change',e=>{const el=e.target,k=el.dataset.set;if(!k||el.type!=='checkbox')return;
+body.addEventListener('change',e=>{const el=e.target,k=el.dataset.set;if(el.id==='sprIn'&&el.files&&el.files.length){importFiles([...el.files]);return}if(!k||el.type!=='checkbox')return;
  if(k.startsWith('skill:')){const id=k.slice(6);if(el.checked)delete S.skillOff[id];else S.skillOff[id]=1}
  else{S.set[k]=el.checked;if(k==='autoStat'&&el.checked)autoStat();if(k==='autoMap')autoMapT=0}
  save();dirty=true});
@@ -1200,8 +1255,10 @@ function boot(fresh){
  syncSpeed();faceDraw();updateBasic();renderTab(true);
  if(!fresh&&S.cls==='novice'&&S.JL>=10)timers.push({t:1,fn:openJobModal});
 }
+let spritesLoaded=false;
 function start(data){
  let fromHot=false;
+ if(!spritesLoaded){spritesLoaded=true;loadFolderSprites();loadImportedSprites()}
  if(data&&data.save){try{S=merge(defaultState(),JSON.parse(data.save));fromHot=true}catch(e){}}
  if(!S)S=loadSave();
  const had=!!S;if(!S)S=defaultState();

@@ -1,0 +1,5 @@
+# 從官方客戶端取出的素材屬於 Gravity 版權，只供自己本機使用，不要推到 repo
+*
+!.gitignore
+!sprites.example.js
+!README.md
